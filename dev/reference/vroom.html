@@ -72,7 +72,8 @@
 <span>  num_threads <span class="op">=</span> <span class="fu">vroom_threads</span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  progress <span class="op">=</span> <span class="fu"><a href="vroom_progress.html">vroom_progress</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  show_col_types <span class="op">=</span> <span class="cn">NULL</span>,</span>
-<span>  .name_repair <span class="op">=</span> <span class="st">"unique"</span></span>
+<span>  .name_repair <span class="op">=</span> <span class="st">"unique"</span>,</span>
+<span>  use_libvroom <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -256,6 +257,12 @@ for names in the style of base R).</p></li>
 </ul><p>This argument is passed on as <code>repair</code> to <code><a href="https://vctrs.r-lib.org/reference/vec_as_names.html" class="external-link">vctrs::vec_as_names()</a></code>.
 See there for more details on these terms and the strategies used
 to enforce them.</p></dd>
+
+
+<dt id="arg-use-libvroom">use_libvroom<a class="anchor" aria-label="anchor" href="#arg-use-libvroom"></a></dt>
+<dd><p>Use the experimental libvroom SIMD-accelerated CSV
+parsing backend. This backend can be significantly faster for large files
+but may not support all features. Defaults to <code>FALSE</code>.</p></dd>
 
 </dl></div>
 
