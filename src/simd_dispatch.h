@@ -107,6 +107,31 @@ uint64_t FindQuoteMask2(uint64_t quote_bits, uint64_t& prev_iter_inside_quote);
  */
 uint64_t ComputeLineEndingMask(const uint8_t* data, uint64_t mask);
 
+/**
+ * @brief Combined CSV mask computation - reduces dispatch overhead.
+ *
+ * Computes all CSV-relevant masks in a single SIMD dispatch call:
+ * delimiter positions, newline positions, and quote handling.
+ * This is more efficient than calling CmpMaskAgainstInput, ComputeLineEndingMask,
+ * and FindQuoteMask2 separately.
+ *
+ * @param data Pointer to 64 bytes of input data.
+ * @param delim Delimiter character (e.g., ',').
+ * @param quote Quote character (e.g., '"'), or 0 if no quoting.
+ * @param prev_inside_quote State from previous block (updated on return).
+ * @param out_delim Output: delimiter mask (positions outside quotes).
+ * @param out_newline Output: newline mask (positions outside quotes).
+ * @param out_newlines_in_quotes Output: newlines that are inside quoted fields.
+ */
+void GetCsvMasks(
+    const uint8_t* data,
+    uint8_t delim,
+    uint8_t quote,
+    uint64_t& prev_inside_quote,
+    uint64_t& out_delim,
+    uint64_t& out_newline,
+    uint64_t& out_newlines_in_quotes);
+
 // =============================================================================
 // SIMD Target Information
 // =============================================================================

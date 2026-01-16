@@ -526,23 +526,20 @@ public:
     while (pos + 64 <= end && lines_read < n_max) {
       const uint8_t* block = reinterpret_cast<const uint8_t*>(buf + pos);
 
-      // Get bitmasks for special characters
-      uint64_t delim_mask = simd::CmpMaskAgainstInput(block, delim_char);
-      uint64_t newline_mask = simd::ComputeLineEndingMask(block, ~0ULL);
-      uint64_t quote_mask =
-          (quote != '\0') ? simd::CmpMaskAgainstInput(block, quote) : 0;
-
-      // Compute which positions are inside quotes
-      uint64_t inside_quote =
-          simd::FindQuoteMask2(quote_mask, prev_iter_inside_quote);
-
-      // Mask out delimiters and newlines that are inside quotes
-      uint64_t effective_delim = delim_mask & ~inside_quote;
-      uint64_t effective_newline = newline_mask & ~inside_quote;
+      // Get all CSV masks in a single SIMD dispatch call
+      // This reduces dispatch overhead from 3-4 calls to 1 per block
+      uint64_t effective_delim, effective_newline, newlines_in_quotes;
+      simd::GetCsvMasks(
+          block,
+          static_cast<uint8_t>(delim_char),
+          static_cast<uint8_t>(quote),
+          prev_iter_inside_quote,
+          effective_delim,
+          effective_newline,
+          newlines_in_quotes);
 
       // Check for embedded newlines in quoted fields (only allowed with single
       // thread)
-      uint64_t newlines_in_quotes = newline_mask & inside_quote;
       if (newlines_in_quotes != 0 && num_threads != 1) {
         if (progress_ && pb) {
           pb->finish();
@@ -550,60 +547,62 @@ public:
         throw newline_error();
       }
 
-      // Process each position where we found a delimiter, newline, or quote
-      uint64_t interesting = effective_delim | effective_newline | quote_mask;
+      // Only process delimiters and newlines outside quotes.
+      // We don't need to process quote characters individually since
+      // inside_quote mask already handles quote state via carryless multiply.
+      uint64_t interesting = effective_delim | effective_newline;
+
+      // Fast path: skip block if no delimiters or newlines
+      if (interesting == 0) {
+        // Push pending record start if it's in this block
+        if (pending_record_start != SIZE_MAX && pending_record_start < pos + 64) {
+          destination.push_back(pending_record_start + file_offset);
+          pending_record_start = SIZE_MAX;
+        }
+        pos += 64;
+        continue;
+      }
+
+      // Track remaining delimiters and newlines separately
+      // This avoids computing (1ULL << bit_pos) for each iteration
+      uint64_t delims_remaining = effective_delim;
+      uint64_t newlines_remaining = effective_newline;
 
       // Process bits in order (lowest to highest position)
       while (interesting != 0) {
+        // Get position of lowest set bit
         int bit_pos = __builtin_ctzll(interesting);
         size_t char_pos = pos + bit_pos;
 
-        // Before processing this character, check if we need to push a record
-        // start
+        // Isolate the lowest set bit
+        uint64_t lowest_bit = interesting & -interesting;
+
+        // Push record start if pending and before this position
         if (pending_record_start != SIZE_MAX &&
             pending_record_start <= char_pos) {
           destination.push_back(pending_record_start + file_offset);
-          state = FIELD_START;
           pending_record_start = SIZE_MAX;
         }
 
-        // Process the character
-        if ((quote_mask & (1ULL << bit_pos)) != 0) {
-          // Quote character
-          state = quoted_state(state);
-        } else if ((effective_delim & (1ULL << bit_pos)) != 0) {
-          // Delimiter outside quotes
-          state = comma_state(state);
+        // Check if this bit is a delimiter or newline
+        if (delims_remaining & lowest_bit) {
+          // Delimiter - push position and increment column count
           destination.push_back(char_pos + file_offset);
           ++cols;
-        } else if ((effective_newline & (1ULL << bit_pos)) != 0) {
-          // Newline outside quotes
-          if (state == QUOTED_FIELD) {
-            // Embedded newline in quoted field - only allowed with single thread
-            if (num_threads != 1) {
-              if (progress_ && pb) {
-                pb->finish();
-              }
-              throw newline_error();
-            }
-            // Skip this newline, it's inside a quoted field
-            interesting &= interesting - 1;
-            continue;
-          }
-
-          // Resolve column count if needed
+          delims_remaining ^= lowest_bit;
+        } else {
+          // Newline - end of record
           if (num_cols > 0 && char_pos > start) {
             resolve_columns(
                 char_pos + file_offset, cols, num_cols, destination, errors);
           }
 
-          state = RECORD_START;
           cols = 0;
           destination.push_back(char_pos + file_offset);
           ++lines_read;
+          newlines_remaining ^= lowest_bit;
 
-          // Set pending record start for next record
-          // The next record starts at char_pos + 1
+          // Next record starts after this newline
           pending_record_start = char_pos + 1;
 
           if (lines_read >= n_max) {
@@ -623,8 +622,8 @@ public:
           }
         }
 
-        // Clear this bit and continue
-        interesting &= interesting - 1;
+        // Clear lowest bit and continue
+        interesting ^= lowest_bit;
       }
 
       pos += 64;

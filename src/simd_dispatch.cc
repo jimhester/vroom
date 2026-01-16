@@ -272,6 +272,94 @@ uint64_t ComputeLineEndingMaskImpl(const uint8_t* data, uint64_t mask) {
   return lf_mask | standalone_cr;
 }
 
+/**
+ * @brief Combined CSV indexing function - does all mask computation in one call.
+ *
+ * This reduces dispatch overhead by computing delimiter, newline, quote, and
+ * inside_quote masks all in a single function call instead of 3-4 separate calls.
+ *
+ * @param data Pointer to 64-byte block
+ * @param delim Delimiter character
+ * @param quote Quote character (0 if no quoting)
+ * @param prev_inside_quote Previous block's inside-quote state (updated on return)
+ * @param out_delim Output: delimiter mask (outside quotes)
+ * @param out_newline Output: newline mask (outside quotes)
+ * @param out_newlines_in_quotes Output: newlines that are inside quoted fields
+ */
+void GetCsvMasksImpl(
+    const uint8_t* data,
+    uint8_t delim,
+    uint8_t quote,
+    uint64_t& prev_inside_quote,
+    uint64_t& out_delim,
+    uint64_t& out_newline,
+    uint64_t& out_newlines_in_quotes) {
+
+  const hn::ScalableTag<uint8_t> d;
+  const size_t N = hn::Lanes(d);
+
+  // Load comparison values
+  const auto delim_val = hn::Set(d, delim);
+  const auto lf_val = hn::Set(d, static_cast<uint8_t>('\n'));
+  const auto cr_val = hn::Set(d, static_cast<uint8_t>('\r'));
+  const auto quote_val = hn::Set(d, quote);
+
+  uint64_t delim_mask = 0;
+  uint64_t lf_mask = 0;
+  uint64_t cr_mask = 0;
+  uint64_t quote_mask = 0;
+
+  // Process all 64 bytes
+  size_t i = 0;
+  for (; i + N <= 64; i += N) {
+    auto vec = hn::LoadU(d, data + i);
+
+    auto is_delim = hn::Eq(vec, delim_val);
+    auto is_lf = hn::Eq(vec, lf_val);
+    auto is_cr = hn::Eq(vec, cr_val);
+
+    delim_mask |= (static_cast<uint64_t>(hn::BitsFromMask(d, is_delim)) << i);
+    lf_mask |= (static_cast<uint64_t>(hn::BitsFromMask(d, is_lf)) << i);
+    cr_mask |= (static_cast<uint64_t>(hn::BitsFromMask(d, is_cr)) << i);
+
+    if (quote != 0) {
+      auto is_quote = hn::Eq(vec, quote_val);
+      quote_mask |= (static_cast<uint64_t>(hn::BitsFromMask(d, is_quote)) << i);
+    }
+  }
+
+  // Scalar fallback for remaining bytes
+  for (; i < 64; ++i) {
+    if (data[i] == delim) delim_mask |= (1ULL << i);
+    if (data[i] == '\n') lf_mask |= (1ULL << i);
+    if (data[i] == '\r') cr_mask |= (1ULL << i);
+    if (quote != 0 && data[i] == quote) quote_mask |= (1ULL << i);
+  }
+
+  // Compute newline mask (handle CRLF)
+  uint64_t crlf_cr_mask = cr_mask & (lf_mask >> 1);
+  uint64_t standalone_cr = cr_mask & ~crlf_cr_mask;
+  uint64_t newline_mask = lf_mask | standalone_cr;
+
+  // Compute inside_quote mask using carryless multiplication
+  uint64_t inside_quote = 0;
+  if (quote != 0 && quote_mask != 0) {
+    const hn::FixedTag<uint64_t, 2> d64;
+    auto quote_vec = hn::Set(d64, quote_mask);
+    auto all_ones = hn::Set(d64, ~0ULL);
+    auto result = hn::CLMulLower(quote_vec, all_ones);
+    inside_quote = hn::GetLane(result);
+    inside_quote ^= prev_inside_quote;
+    // Update state for next block
+    prev_inside_quote = static_cast<uint64_t>(static_cast<int64_t>(inside_quote) >> 63);
+  }
+
+  // Output masks with inside_quote applied
+  out_delim = delim_mask & ~inside_quote;
+  out_newline = newline_mask & ~inside_quote;
+  out_newlines_in_quotes = newline_mask & inside_quote;
+}
+
 } // namespace HWY_NAMESPACE
 } // namespace simd
 } // namespace vroom
@@ -293,6 +381,7 @@ HWY_EXPORT(FindTrailingNonWhitespaceImpl);
 HWY_EXPORT(FindQuoteMaskImpl);
 HWY_EXPORT(FindQuoteMask2Impl);
 HWY_EXPORT(ComputeLineEndingMaskImpl);
+HWY_EXPORT(GetCsvMasksImpl);
 
 // Public dispatch wrappers
 uint64_t CmpMaskAgainstInput(const uint8_t* data, uint8_t m) {
@@ -313,6 +402,18 @@ uint64_t FindQuoteMask2(uint64_t quote_bits, uint64_t& prev_iter_inside_quote) {
 
 uint64_t ComputeLineEndingMask(const uint8_t* data, uint64_t mask) {
   return HWY_DYNAMIC_DISPATCH(ComputeLineEndingMaskImpl)(data, mask);
+}
+
+void GetCsvMasks(
+    const uint8_t* data,
+    uint8_t delim,
+    uint8_t quote,
+    uint64_t& prev_inside_quote,
+    uint64_t& out_delim,
+    uint64_t& out_newline,
+    uint64_t& out_newlines_in_quotes) {
+  HWY_DYNAMIC_DISPATCH(GetCsvMasksImpl)(
+      data, delim, quote, prev_inside_quote, out_delim, out_newline, out_newlines_in_quotes);
 }
 
 const char* TrimWhitespaceBeginSIMD(const char* begin, const char* end) {
