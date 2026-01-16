@@ -229,7 +229,19 @@ inline bool is_space(const char* c) {
   return *c == ' ' || *c == '\t' || *c == '\0' || *c == '\r';
 }
 
+// Forward declaration for SIMD whitespace trimming
+namespace simd {
+void TrimWhitespaceSIMD(const char*& begin, const char*& end);
+}
+
 inline void trim_whitespace(const char*& begin, const char*& end) {
+  // Use SIMD for strings longer than 64 bytes (SIMD register size)
+  if (end - begin >= 64) {
+    simd::TrimWhitespaceSIMD(begin, end);
+    return;
+  }
+
+  // Scalar fallback for short strings
   while (begin != end && is_space(begin)) {
     ++begin;
   }
