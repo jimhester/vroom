@@ -46,13 +46,14 @@
 <div id="vroom-read-and-write-rectangular-text-data-quickly" class="section level1">
 
 <p>This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.</p>
+<p>We are working on a fork of the upstream project. PRs should be opened against jimhester/vroom, <em>not</em> tidyverse/vroom.</p>
 <div class="section level2">
 <h2 id="package-overview">Package Overview<a class="anchor" aria-label="anchor" href="#package-overview"></a></h2>
 <p>vroom reads and writes rectangular text data (CSV, TSV, fixed-width files). It uses R’s Altrep framework for lazy evaluation - indexing file structure quickly, then parsing values on-demand as they’re accessed. Multi-threading is used for indexing, materializing non-character columns, and writing. vroom powers readr’s Edition 2 and is part of the tidyverse ecosystem.</p>
 </div>
 <div class="section level2">
 <h2 id="development-workflow">Development Workflow<a class="anchor" aria-label="anchor" href="#development-workflow"></a></h2>
-<p>General advice: * When running R from the console, prefer <code>Rscript</code>. * Always run <code>air format .</code> after generating or modifying R code. The binary of air is probably not on the PATH but is typically found inside the Air extension used by Positron, e.g. something like <code>~/.positron/extensions/posit.air-vscode-0.18.0/bundled/bin/air</code>.</p>
+<p>General advice: * When running R from the console, prefer <code>Rscript</code>. * Always run <code>air format .</code> after generating or modifying R code. The binary of air is on the path.</p>
 <div class="section level3">
 <h3 id="testing">Testing<a class="anchor" aria-label="anchor" href="#testing"></a></h3>
 <ul><li><p>Tests for <code>R/{name}.R</code> go in <code>tests/testthat/test-{name}.R</code>.</p></li>

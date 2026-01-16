@@ -3,6 +3,9 @@
 This file provides guidance to Claude Code (claude.ai/code) when working
 with code in this repository.
 
+We are working on a fork of the upstream project. PRs should be opened
+against jimhester/vroom, *not* tidyverse/vroom.
+
 ## Package Overview
 
 vroom reads and writes rectangular text data (CSV, TSV, fixed-width
@@ -16,9 +19,7 @@ tidyverse ecosystem.
 
 General advice: \* When running R from the console, prefer `Rscript`. \*
 Always run `air format .` after generating or modifying R code. The
-binary of air is probably not on the PATH but is typically found inside
-the Air extension used by Positron, e.g. something like
-`~/.positron/extensions/posit.air-vscode-0.18.0/bundled/bin/air`.
+binary of air is on the path.
 
 ### Testing
 
