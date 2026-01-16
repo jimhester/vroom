@@ -470,13 +470,13 @@ public:
 
   /*
    * SIMD-accelerated version of index_region using Highway.
+   * Processes 64 bytes at a time for improved performance.
    *
-   * Currently uses the scalar implementation while the SIMD indexing
-   * is being refined. SIMD is used for whitespace trimming via the
-   * trim_whitespace() function in utils.h.
-   *
-   * TODO: Implement SIMD-accelerated indexing using the FindQuoteMask
-   * and CmpMaskAgainstInput primitives for processing 64 bytes at a time.
+   * Falls back to scalar processing when:
+   * - Backslash escaping is enabled
+   * - Comments are present
+   * - Multi-byte delimiters are used
+   * - skip_empty_rows is enabled (for simplicity in first version)
    */
   template <typename T, typename P>
   size_t index_region_simd(
@@ -499,12 +499,160 @@ public:
       const size_t num_threads,
       const size_t update_size) {
 
-    // Use scalar indexing for now - SIMD whitespace trimming is active
-    // in trim_whitespace() for strings >= 64 bytes
-    return index_region(
-        source, destination, delim, nlt, quote, comment, skip_empty_rows,
-        state, start, end, file_offset, n_max, cols, num_cols, errors, pb,
-        num_threads, update_size);
+    // Fall back to scalar for complex cases
+    if (escape_backslash_ || !comment.empty() || delim_len_ > 1 ||
+        skip_empty_rows) {
+      return index_region(
+          source, destination, delim, nlt, quote, comment, skip_empty_rows,
+          state, start, end, file_offset, n_max, cols, num_cols, errors, pb,
+          num_threads, update_size);
+    }
+
+    const char delim_char = delim[0];
+    auto buf = source.data();
+    auto last_tick = start;
+
+    size_t pos = start;
+    size_t lines_read = 0;
+
+    // State for quote tracking across 64-byte blocks
+    uint64_t prev_iter_inside_quote = 0;
+
+    // Track position after last newline for record start
+    // SIZE_MAX means no pending record start
+    size_t pending_record_start = (state == RECORD_START) ? start : SIZE_MAX;
+
+    // Process 64-byte blocks with SIMD
+    while (pos + 64 <= end && lines_read < n_max) {
+      const uint8_t* block = reinterpret_cast<const uint8_t*>(buf + pos);
+
+      // Get bitmasks for special characters
+      uint64_t delim_mask = simd::CmpMaskAgainstInput(block, delim_char);
+      uint64_t newline_mask = simd::ComputeLineEndingMask(block, ~0ULL);
+      uint64_t quote_mask =
+          (quote != '\0') ? simd::CmpMaskAgainstInput(block, quote) : 0;
+
+      // Compute which positions are inside quotes
+      uint64_t inside_quote =
+          simd::FindQuoteMask2(quote_mask, prev_iter_inside_quote);
+
+      // Mask out delimiters and newlines that are inside quotes
+      uint64_t effective_delim = delim_mask & ~inside_quote;
+      uint64_t effective_newline = newline_mask & ~inside_quote;
+
+      // Process each position where we found a delimiter, newline, or quote
+      uint64_t interesting = effective_delim | effective_newline | quote_mask;
+
+      // Process bits in order (lowest to highest position)
+      while (interesting != 0) {
+        int bit_pos = __builtin_ctzll(interesting);
+        size_t char_pos = pos + bit_pos;
+
+        // Before processing this character, check if we need to push a record
+        // start
+        if (pending_record_start != SIZE_MAX &&
+            pending_record_start <= char_pos) {
+          destination.push_back(pending_record_start + file_offset);
+          state = FIELD_START;
+          pending_record_start = SIZE_MAX;
+        }
+
+        // Process the character
+        if ((quote_mask & (1ULL << bit_pos)) != 0) {
+          // Quote character
+          state = quoted_state(state);
+        } else if ((effective_delim & (1ULL << bit_pos)) != 0) {
+          // Delimiter outside quotes
+          state = comma_state(state);
+          destination.push_back(char_pos + file_offset);
+          ++cols;
+        } else if ((effective_newline & (1ULL << bit_pos)) != 0) {
+          // Newline outside quotes
+          if (state == QUOTED_FIELD) {
+            // Embedded newline in quoted field - only allowed with single thread
+            if (num_threads != 1) {
+              if (progress_ && pb) {
+                pb->finish();
+              }
+              throw newline_error();
+            }
+            // Skip this newline, it's inside a quoted field
+            interesting &= interesting - 1;
+            continue;
+          }
+
+          // Resolve column count if needed
+          if (num_cols > 0 && char_pos > start) {
+            resolve_columns(
+                char_pos + file_offset, cols, num_cols, destination, errors);
+          }
+
+          state = RECORD_START;
+          cols = 0;
+          destination.push_back(char_pos + file_offset);
+          ++lines_read;
+
+          // Set pending record start for next record
+          // The next record starts at char_pos + 1
+          pending_record_start = char_pos + 1;
+
+          if (lines_read >= n_max) {
+            if (progress_ && pb) {
+              pb->finish();
+            }
+            return lines_read;
+          }
+
+          // Update progress
+          if (progress_ && pb) {
+            size_t tick_size = char_pos - last_tick;
+            if (tick_size > update_size) {
+              pb->tick(char_pos - last_tick);
+              last_tick = char_pos;
+            }
+          }
+        }
+
+        // Clear this bit and continue
+        interesting &= interesting - 1;
+      }
+
+      pos += 64;
+
+      // If pending_record_start is in the processed block but we didn't see
+      // any interesting chars after it, push it now before moving to next block
+      if (pending_record_start != SIZE_MAX && pending_record_start < pos) {
+        destination.push_back(pending_record_start + file_offset);
+        state = FIELD_START;
+        pending_record_start = SIZE_MAX;
+      }
+    }
+
+    // Handle pending record start before scalar fallback
+    if (pending_record_start != SIZE_MAX && pending_record_start < end) {
+      destination.push_back(pending_record_start + file_offset);
+      state = FIELD_START;
+      pending_record_start = SIZE_MAX;
+    }
+
+    // Process remaining bytes with scalar code
+    if (pos < end && lines_read < n_max) {
+      // Adjust state based on quote tracking
+      if (prev_iter_inside_quote != 0 &&
+          (state == RECORD_START || state == FIELD_START)) {
+        state = QUOTED_FIELD;
+      }
+
+      lines_read += index_region(
+          source, destination, delim, nlt, quote, comment, skip_empty_rows,
+          state, pos, end, file_offset, n_max - lines_read, cols, num_cols,
+          errors, pb, num_threads, update_size);
+    }
+
+    if (progress_ && pb) {
+      pb->tick(end - last_tick);
+    }
+    return lines_read;
   }
 };
 
