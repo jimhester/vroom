@@ -187,7 +187,7 @@ delimited_index_connection::delimited_index_connection(
 
     if (n_max > 0) {
       parse_fut = std::async([&, i, sz, first_nl, total_read] {
-        lines_read = index_region(
+        lines_read = index_region_simd(
             buf[i],
             idx_[1],
             delim_.c_str(),

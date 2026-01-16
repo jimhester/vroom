@@ -182,7 +182,7 @@ start_indexing:
     if (nmax_set) {
       threads.emplace_back(std::async(std::launch::async, [&] {
         n_max = n_max > lines_read ? n_max - lines_read : 0;
-        index_region(
+        index_region_simd(
             mmap_,
             idx_[1],
             delim_.c_str(),
@@ -226,7 +226,7 @@ start_indexing:
             ++end;
             size_t cols = 0;
             csv_state state = RECORD_START;
-            index_region(
+            index_region_simd(
                 mmap_,
                 idx_[id + 1],
                 delim_.c_str(),

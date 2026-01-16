@@ -15,6 +15,7 @@
 
 #include "index.h"
 
+#include "simd_dispatch.h"
 #include "utils.h"
 #include <array>
 
@@ -465,6 +466,45 @@ public:
       pb->tick(end - last_tick);
     }
     return lines_read;
+  }
+
+  /*
+   * SIMD-accelerated version of index_region using Highway.
+   *
+   * Currently uses the scalar implementation while the SIMD indexing
+   * is being refined. SIMD is used for whitespace trimming via the
+   * trim_whitespace() function in utils.h.
+   *
+   * TODO: Implement SIMD-accelerated indexing using the FindQuoteMask
+   * and CmpMaskAgainstInput primitives for processing 64 bytes at a time.
+   */
+  template <typename T, typename P>
+  size_t index_region_simd(
+      const T& source,
+      idx_t& destination,
+      const char* delim,
+      newline_type nlt,
+      const char quote,
+      const std::string& comment,
+      const bool skip_empty_rows,
+      csv_state& state,
+      const size_t start,
+      const size_t end,
+      const size_t file_offset,
+      const size_t n_max,
+      size_t& cols,
+      const size_t num_cols,
+      std::shared_ptr<vroom_errors> errors,
+      P& pb,
+      const size_t num_threads,
+      const size_t update_size) {
+
+    // Use scalar indexing for now - SIMD whitespace trimming is active
+    // in trim_whitespace() for strings >= 64 bytes
+    return index_region(
+        source, destination, delim, nlt, quote, comment, skip_empty_rows,
+        state, start, end, file_offset, n_max, cols, num_cols, errors, pb,
+        num_threads, update_size);
   }
 };
 
