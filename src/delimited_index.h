@@ -540,6 +540,16 @@ public:
       uint64_t effective_delim = delim_mask & ~inside_quote;
       uint64_t effective_newline = newline_mask & ~inside_quote;
 
+      // Check for embedded newlines in quoted fields (only allowed with single
+      // thread)
+      uint64_t newlines_in_quotes = newline_mask & inside_quote;
+      if (newlines_in_quotes != 0 && num_threads != 1) {
+        if (progress_ && pb) {
+          pb->finish();
+        }
+        throw newline_error();
+      }
+
       // Process each position where we found a delimiter, newline, or quote
       uint64_t interesting = effective_delim | effective_newline | quote_mask;
 
