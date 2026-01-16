@@ -1,11 +1,10 @@
-pandoc: 2.14.2
-pkgdown: 2.0.3
+pandoc: 3.1.11
+pkgdown: 2.2.0
 pkgdown_sha: ~
 articles:
   benchmarks: benchmarks.html
   vroom: vroom.html
-last_built: 2022-05-17T05:07Z
+last_built: 2026-01-16T02:02Z
 urls:
-  reference: https://vroom.r-lib.org/reference
-  article: https://vroom.r-lib.org/articles
-
+  reference: https://vroom.tidyverse.org/reference
+  article: https://vroom.tidyverse.org/articles
