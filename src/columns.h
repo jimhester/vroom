@@ -140,8 +140,7 @@ inline cpp11::list create_columns(
         std::make_shared<cpp11::strings>(na),
         locale_info,
         *errors,
-        std::string(),
-        idx};
+        std::string()};
 
     SET_STRING_ELT(res_nms, i, collector.name());
 
