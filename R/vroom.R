@@ -321,7 +321,8 @@ vroom <- function(
       delim = delim %||% ""
     )
 
-    out <- apply_libvroom_col_select(out, col_select)
+    # id is always NULL here (can_use_libvroom rejects non-null id)
+    out <- apply_libvroom_col_select(out, col_select, id)
 
     out <- finalize_libvroom_result(out)
 

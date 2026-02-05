@@ -473,7 +473,7 @@ filter_cols_only_and_skip <- function(
   is_cols_only <- !is.null(resolved_spec) &&
     inherits(resolved_spec$default, "collector_skip")
 
-  if (is_cols_only) {
+  if (is_cols_only && length(names(resolved_spec$cols)) > 0) {
     # cols_only(): keep only named columns
     spec_names <- names(resolved_spec$cols)
     keep_cols <- names(out) %in% spec_names
