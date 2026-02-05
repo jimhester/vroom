@@ -246,7 +246,8 @@ vroom <- function(
       skip,
       escape_double,
       escape_backslash,
-      locale
+      locale,
+      comment
     )
     if (explicit_libvroom && !use_libvroom) {
       cli::cli_warn(
@@ -479,7 +480,8 @@ can_use_libvroom <- function(
   skip,
   escape_double,
   escape_backslash,
-  locale
+  locale,
+  comment = ""
 ) {
   # Must have an explicit delimiter (libvroom doesn't auto-detect)
   if (is.null(delim)) {
@@ -544,6 +546,11 @@ can_use_libvroom <- function(
 
   # Must use UTF-8 or default encoding
   if (!is_ascii_compatible(locale$encoding)) {
+    return(FALSE)
+  }
+
+  # No comment character (libvroom handles mid-field comments differently)
+  if (nzchar(comment)) {
     return(FALSE)
   }
 
