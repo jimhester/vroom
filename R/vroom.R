@@ -249,6 +249,9 @@ vroom <- function(
     input <- file[[1]]
     if (inherits(input, "connection")) {
       input <- read_connection_raw(input)
+      if (length(input) == 0L) {
+        return(tibble::tibble())
+      }
     }
 
     na_str <- paste(na, collapse = ",")
@@ -396,10 +399,7 @@ can_use_libvroom <- function(
   }
 
   input <- file[[1]]
-  if (inherits(input, "connection")) {
-    # Connections are supported - will be read to buffer
-  } else if (is.character(input)) {
-    # File path validation
+  if (is.character(input)) {
     if (grepl("^(https?|ftp|ftps)://", input)) {
       return(FALSE)
     }
@@ -413,7 +413,7 @@ can_use_libvroom <- function(
     if (file.size(input) == 0) {
       return(FALSE)
     }
-  } else {
+  } else if (!inherits(input, "connection")) {
     return(FALSE)
   }
 
