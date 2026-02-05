@@ -3,9 +3,8 @@
 #include <libvroom/vroom.h>
 
 #include "arrow_to_r.h"
+#include "libvroom_helpers.h"
 #include "vroom_arrow_chr.h"
-
-#include <cstring>
 
 [[cpp11::register]] cpp11::sexp vroom_libvroom_(
     SEXP input,
@@ -21,7 +20,8 @@
     bool strings_as_factors,
     bool use_altrep,
     const std::vector<int>& col_types,
-    const cpp11::strings& col_type_names) {
+    const cpp11::strings& col_type_names,
+    int default_col_type) {
 
   libvroom::CsvOptions opts;
   if (!delim.empty())
@@ -43,49 +43,30 @@
 
   libvroom::CsvReader reader(opts);
 
-  if (TYPEOF(input) == RAWSXP) {
-    // Raw vector from connection - create aligned buffer
-    size_t data_size = Rf_xlength(input);
-    auto buffer = libvroom::AlignedBuffer::allocate(data_size);
-    std::memcpy(buffer.data(), RAW(input), data_size);
-    auto open_result = reader.open_from_buffer(std::move(buffer));
-    if (!open_result) {
-      cpp11::stop("Failed to open buffer: %s", open_result.error.c_str());
-    }
-  } else {
-    // File path
-    std::string path = cpp11::as_cpp<std::string>(input);
-    auto open_result = reader.open(path);
-    if (!open_result) {
-      cpp11::stop("Failed to open file: %s", open_result.error.c_str());
-    }
-  }
+  open_input_source(reader, input);
+  apply_schema_overrides(reader, col_types, col_type_names);
 
-  // Apply explicit column types if provided
-  if (!col_types.empty()) {
+  // Apply default column type to columns not explicitly typed
+  if (default_col_type > 0) {
     auto schema_copy = reader.schema();
-    if (col_type_names.size() > 0) {
-      // Named matching
-      for (size_t i = 0; i < schema_copy.size(); ++i) {
-        for (R_xlen_t j = 0; j < col_type_names.size(); ++j) {
-          if (schema_copy[i].name == std::string(col_type_names[j])) {
-            int type_int = col_types[static_cast<size_t>(j)];
-            if (type_int > 0) {
-              schema_copy[i].type = static_cast<libvroom::DataType>(type_int);
+    for (size_t i = 0; i < schema_copy.size(); ++i) {
+      bool has_explicit = false;
+      if (!col_types.empty()) {
+        if (col_type_names.size() > 0) {
+          // Named: check if this column was in the named list
+          for (R_xlen_t j = 0; j < col_type_names.size(); ++j) {
+            if (schema_copy[i].name == std::string(col_type_names[j])) {
+              has_explicit = true;
+              break;
             }
-            break;
           }
+        } else {
+          // Positional: columns within col_types range are explicit
+          has_explicit = (i < col_types.size());
         }
       }
-    } else {
-      // Positional matching
-      for (size_t i = 0; i < col_types.size() && i < schema_copy.size(); ++i) {
-        int type_int = col_types[i];
-        if (type_int > 0) {
-          schema_copy[i].type = static_cast<libvroom::DataType>(type_int);
-        }
-        // type_int == 0 means UNKNOWN/guess → keep inferred type
-        // type_int == -1 means skip → handled in R post-processing
+      if (!has_explicit) {
+        schema_copy[i].type = static_cast<libvroom::DataType>(default_col_type);
       }
     }
     reader.set_schema(schema_copy);
@@ -103,31 +84,7 @@
   size_t ncols = schema.size();
 
   if (total_rows == 0) {
-    // Return empty tibble with correct column names
-    cpp11::writable::list result(ncols);
-    cpp11::writable::strings names(ncols);
-    for (size_t i = 0; i < ncols; i++) {
-      switch (schema[i].type) {
-      case libvroom::DataType::INT32:
-        result[static_cast<R_xlen_t>(i)] = Rf_allocVector(INTSXP, 0);
-        break;
-      case libvroom::DataType::FLOAT64:
-        result[static_cast<R_xlen_t>(i)] = Rf_allocVector(REALSXP, 0);
-        break;
-      case libvroom::DataType::BOOL:
-        result[static_cast<R_xlen_t>(i)] = Rf_allocVector(LGLSXP, 0);
-        break;
-      default:
-        result[static_cast<R_xlen_t>(i)] = Rf_allocVector(STRSXP, 0);
-        break;
-      }
-      names[static_cast<R_xlen_t>(i)] = schema[i].name;
-    }
-    result.attr("names") = names;
-    result.attr("class") =
-        cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
-    result.attr("row.names") =
-        cpp11::writable::integers({NA_INTEGER, 0});
+    auto result = empty_tibble_from_schema(schema);
     // Drain any remaining chunks
     while (reader.next_chunk()) {}
     return result;
