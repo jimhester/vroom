@@ -35,7 +35,7 @@ vroom_str(mtcars)
 
 mt <- vroom(vroom_example("mtcars.csv"), ",", altrep = c("chr", "dbl"))
 vroom_str(mt)
-#> 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:
+#> 'spec_tbl_df', 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:
 #> $model:  altrep:true type:vroom::vroom_arrow_chr length:32   materialized:false
 #> $mpg:    altrep:false    type: double    length:32
 #> $cyl:    altrep:false    type: double    length:32
