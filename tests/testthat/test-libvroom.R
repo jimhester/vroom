@@ -466,6 +466,25 @@ test_that("libvroom handles skip parameter", {
   )
 })
 
+test_that("libvroom handles skip with CRLF line endings", {
+  test_libvroom(
+    "skip me\r\na,b\r\n1,2\r\n3,4\r\n",
+    delim = ",",
+    skip = 1,
+    equals = tibble::tibble(a = c(1L, 3L), b = c(2L, 4L))
+  )
+})
+
+test_that("libvroom handles skip combined with comment", {
+  test_libvroom(
+    "metadata\n# comment\na,b\n1,2\n3,4\n",
+    delim = ",",
+    skip = 1,
+    comment = "#",
+    equals = tibble::tibble(a = c(1L, 3L), b = c(2L, 4L))
+  )
+})
+
 test_that("libvroom handles n_max parameter", {
   test_libvroom(
     "a,b,c\n1,2,3\n4,5,6\n7,8,9\n",
