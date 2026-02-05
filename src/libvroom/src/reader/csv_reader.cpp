@@ -451,22 +451,21 @@ Result<bool> CsvReader::open(const std::string& path) {
     }
   }
 
+  // Skip N initial lines before dialect detection so auto-detection
+  // analyzes the actual CSV data, not skipped metadata lines.
+  if (impl_->options.skip > 0) {
+    size_t line_skip = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
+    impl_->data_ptr += line_skip;
+    impl_->data_size -= line_skip;
+    if (impl_->data_size == 0) {
+      return Result<bool>::failure("All data was skipped");
+    }
+  }
+
   impl_->auto_detect_dialect();
 
   const char* data = impl_->data_ptr;
   size_t size = impl_->data_size;
-
-  // Skip N initial lines (user-specified skip)
-  if (impl_->options.skip > 0) {
-    size_t line_skip = skip_n_lines(data, size, impl_->options.skip);
-    impl_->data_ptr += line_skip;
-    impl_->data_size -= line_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-    if (size == 0) {
-      return Result<bool>::failure("All data was skipped");
-    }
-  }
 
   ChunkFinder finder(impl_->options.separator, impl_->options.quote);
   LineParser parser(impl_->options);
@@ -619,23 +618,22 @@ Result<bool> CsvReader::open_from_buffer(AlignedBuffer buffer) {
     }
   }
 
+  // Skip N initial lines before dialect detection so auto-detection
+  // analyzes the actual CSV data, not skipped metadata lines.
+  if (impl_->options.skip > 0) {
+    size_t line_skip = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
+    impl_->data_ptr += line_skip;
+    impl_->data_size -= line_skip;
+    if (impl_->data_size == 0) {
+      return Result<bool>::failure("All data was skipped");
+    }
+  }
+
   // Auto-detect dialect if separator is the sentinel value
   impl_->auto_detect_dialect();
 
   const char* data = impl_->data_ptr;
   size_t size = impl_->data_size;
-
-  // Skip N initial lines (user-specified skip)
-  if (impl_->options.skip > 0) {
-    size_t line_skip = skip_n_lines(data, size, impl_->options.skip);
-    impl_->data_ptr += line_skip;
-    impl_->data_size -= line_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-    if (size == 0) {
-      return Result<bool>::failure("All data was skipped");
-    }
-  }
 
   ChunkFinder finder(impl_->options.separator, impl_->options.quote);
   LineParser parser(impl_->options);
