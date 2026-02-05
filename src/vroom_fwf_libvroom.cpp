@@ -68,11 +68,24 @@
     cpp11::stop("Failed to start streaming: %s", stream_result.error.c_str());
   }
 
-  size_t total_rows = reader.row_count();
   size_t ncols = schema.size();
 
-  if (total_rows == 0) {
-    // Return empty tibble with correct column names
+  // Collect all chunks
+  std::vector<std::vector<std::unique_ptr<libvroom::ArrowColumnBuilder>>> chunks;
+  while (auto chunk = reader.next_chunk()) {
+    chunks.push_back(std::move(chunk.value()));
+  }
+
+  // Compute actual total rows from column builder sizes (count_newlines
+  // overestimates when there are empty/comment lines in the data)
+  size_t actual_rows = 0;
+  for (const auto& chunk : chunks) {
+    if (!chunk.empty()) {
+      actual_rows += chunk[0]->size();
+    }
+  }
+
+  if (actual_rows == 0) {
     cpp11::writable::list result(ncols);
     cpp11::writable::strings names(ncols);
     for (size_t i = 0; i < ncols; i++) {
@@ -97,30 +110,8 @@
         cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
     result.attr("row.names") =
         cpp11::writable::integers({NA_INTEGER, 0});
-    while (reader.next_chunk()) {}
     return result;
   }
 
-  // Collect all chunks, then convert via columns_to_r_chunked
-  std::vector<std::vector<std::unique_ptr<libvroom::ArrowColumnBuilder>>> chunks;
-  while (auto chunk = reader.next_chunk()) {
-    chunks.push_back(std::move(chunk.value()));
-  }
-
-  if (chunks.empty()) {
-    cpp11::writable::list result(ncols);
-    cpp11::writable::strings names(ncols);
-    for (size_t i = 0; i < ncols; i++) {
-      result[static_cast<R_xlen_t>(i)] = Rf_allocVector(STRSXP, 0);
-      names[static_cast<R_xlen_t>(i)] = schema[i].name;
-    }
-    result.attr("names") = names;
-    result.attr("class") =
-        cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
-    result.attr("row.names") =
-        cpp11::writable::integers({NA_INTEGER, 0});
-    return result;
-  }
-
-  return columns_to_r_chunked(chunks, schema, total_rows);
+  return columns_to_r_chunked(chunks, schema, actual_rows);
 }
