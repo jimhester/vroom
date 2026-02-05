@@ -330,6 +330,16 @@ test_that("libvroom infers correct types for single-row files", {
   expect_type(res$y, "character")
 })
 
+test_that("libvroom trims whitespace from fields", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+  writeLines(c("x,y", "  1  ,  hello  "), tf)
+
+  res <- vroom(tf, delim = ",", show_col_types = FALSE)
+  expect_equal(res$x, 1)
+  expect_equal(res$y, "hello")
+})
+
 test_that("vroom can read an empty file", {
   test_vroom("\n", equals = tibble::tibble())
 

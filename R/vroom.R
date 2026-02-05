@@ -263,6 +263,7 @@ vroom <- function(
       skip = as.integer(skip),
       comment = comment,
       skip_empty_rows = skip_empty_rows,
+      trim_ws = trim_ws,
       na_values = na_str,
       num_threads = as.integer(num_threads),
       strings_as_factors = FALSE,
