@@ -499,11 +499,6 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # No comment character (libvroom handles mid-field comments differently)
-  if (nzchar(comment)) {
-    return(FALSE)
-  }
-
   TRUE
 }
 

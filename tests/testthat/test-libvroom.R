@@ -407,3 +407,12 @@ test_that("libvroom spec reflects full file schema with col_select", {
   expect_equal(length(s$cols), 3)
   expect_true(all(c("a", "b", "c") %in% names(s$cols)))
 })
+
+test_that("libvroom handles comment character", {
+  test_libvroom(
+    "# this is a comment\na,b,c\n1,2,3\n4,5,6\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+})
