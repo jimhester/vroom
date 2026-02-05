@@ -126,13 +126,13 @@ test_that("libvroom trims whitespace by default (matching old parser)", {
   test_libvroom(
     "a,b,c\n foo ,  bar  ,baz\n",
     delim = ",",
-    equals = tibble::tibble(a = " foo ", b = "  bar  ", c = "baz")
+    equals = tibble::tibble(a = "foo", b = "bar", c = "baz")
   )
 
   test_libvroom(
     "a,b,c\n\tfoo\t,\t\tbar\t\t,baz\n",
     delim = ",",
-    equals = tibble::tibble(a = "\tfoo\t", b = "\t\tbar\t\t", c = "baz")
+    equals = tibble::tibble(a = "foo", b = "bar", c = "baz")
   )
 })
 

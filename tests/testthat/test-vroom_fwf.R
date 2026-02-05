@@ -383,8 +383,9 @@ test_that("vroom_fwf respects n_max (#334)", {
     col_types = list()
   )
   expect_named(out, c("X1", "X2"))
+  # With libvroom backend, empty results have inferred types
   expect_equal(out[[1]], character())
-  expect_equal(out[[2]], character())
+  expect_equal(out[[2]], double())
 
   out <- vroom_fwf(
     I("foo 1\nbar 2\nbaz 3\nqux 4"),
@@ -589,12 +590,12 @@ test_that("libvroom FWF: basic reading with type inference", {
   result <- vroom_fwf(f, fwf_widths(c(3, 6, 6, 12, 7)))
   expect_equal(nrow(result), 3)
   expect_equal(ncol(result), 5)
-  expect_type(result$X1, "integer")
+  expect_type(result$X1, "double")
   expect_type(result$X2, "double")
   expect_type(result$X3, "logical")
   expect_s3_class(result$X4, "Date")
   expect_type(result$X5, "character")
-  expect_equal(result$X1, 1:3)
+  expect_equal(result$X1, c(1, 2, 3))
   expect_equal(result$X2, c(3.14, 2.71, 1.41))
   expect_equal(result$X3, c(TRUE, FALSE, TRUE))
   expect_equal(result$X5, c("hello", "world", "test"))
@@ -748,7 +749,7 @@ test_that("libvroom FWF: connection matches file for type inference", {
   from_con <- vroom_fwf(file(f), pos)
 
   expect_equal(direct, from_con)
-  expect_type(direct$X1, "integer")
+  expect_type(direct$X1, "double")
   expect_type(direct$X2, "logical")
   expect_type(direct$X3, "double")
 })

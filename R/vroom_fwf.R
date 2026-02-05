@@ -135,7 +135,19 @@ vroom_fwf <- function(
         .before = 1
       )
     }
-    out <- vroom_select(out, col_select, id)
+
+    # Apply column selection using names directly (no spec attribute)
+    if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
+      all_names <- c(names(out), id)
+      if (inherits(col_select, "quosures")) {
+        vars <- tidyselect::vars_select(all_names, !!!col_select)
+      } else {
+        vars <- tidyselect::vars_select(all_names, !!col_select)
+      }
+      out <- out[vars]
+      names(out) <- names(vars)
+    }
+
     class(out) <- c("spec_tbl_df", class(out))
     return(out)
   }
@@ -332,7 +344,8 @@ can_use_libvroom_fwf <- function(file, col_types, locale) {
   if (length(file) != 1) {
     return(FALSE)
   }
-  if (!is.null(col_types)) {
+  # col_types = list() is equivalent to NULL — both mean "guess all"
+  if (!is.null(col_types) && !identical(col_types, list())) {
     return(FALSE)
   }
   if (!is_ascii_compatible(locale$encoding)) {
