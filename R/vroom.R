@@ -234,6 +234,7 @@ vroom <- function(
 
   # Use libvroom SIMD backend for single file paths with default settings
   # NULL (default) = auto-detect, TRUE = prefer libvroom, FALSE = force old parser
+  explicit_libvroom <- isTRUE(use_libvroom)
   if (!isFALSE(use_libvroom)) {
     use_libvroom <- can_use_libvroom(
       file,
@@ -247,6 +248,11 @@ vroom <- function(
       escape_backslash,
       locale
     )
+    if (explicit_libvroom && !use_libvroom) {
+      cli::cli_warn(
+        "{.arg use_libvroom} was {.val TRUE} but the libvroom backend cannot handle this request; falling back to the legacy parser."
+      )
+    }
   }
 
   if (use_libvroom) {
