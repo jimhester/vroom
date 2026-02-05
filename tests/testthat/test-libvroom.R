@@ -121,8 +121,8 @@ test_that("libvroom handles fields without escapes (zero-copy fast path)", {
   )
 })
 
-test_that("libvroom does not trim whitespace (unlike old parser)", {
-  # libvroom preserves leading/trailing whitespace in fields
+test_that("libvroom trims whitespace by default (matching old parser)", {
+  # libvroom trims leading/trailing whitespace (spaces and tabs) from fields
   test_libvroom(
     "a,b,c\n foo ,  bar  ,baz\n",
     delim = ",",
