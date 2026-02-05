@@ -473,12 +473,11 @@ filter_cols_only_and_skip <- function(
   is_cols_only <- !is.null(resolved_spec) &&
     inherits(resolved_spec$default, "collector_skip")
 
-  if (is_cols_only && length(names(resolved_spec$cols)) > 0) {
+  if (is_cols_only) {
     # cols_only(): keep only named columns
-    spec_names <- names(resolved_spec$cols)
-    keep_cols <- names(out) %in% spec_names
+    keep_cols <- names(out) %in% col_type_names
     out <- out[, keep_cols, drop = FALSE]
-  } else if (length(col_types_int) > 0 && length(col_type_names) == 0) {
+  } else if (length(col_types_int) > 0 && !is_cols_only) {
     # Positional skip (compact notation like "i_d"): drop skip columns
     skip_mask <- col_types_int == -1L
     if (any(skip_mask)) {
