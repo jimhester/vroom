@@ -27,8 +27,7 @@ vroom(
   num_threads = vroom_threads(),
   progress = vroom_progress(),
   show_col_types = NULL,
-  .name_repair = "unique",
-  use_libvroom = FALSE
+  .name_repair = "unique"
 )
 ```
 
@@ -42,9 +41,10 @@ vroom(
   connections.
 
   Files ending in `.gz`, `.bz2`, `.xz`, or `.zip` will be automatically
-  uncompressed. Files starting with `http://`, `https://`, `ftp://`, or
-  `ftps://` will be automatically downloaded. Remote `.gz` files can
-  also be automatically downloaded and decompressed.
+  decompressed. Files starting with `http://`, `https://`, `ftp://`, or
+  `ftps://` will be automatically downloaded. Remote compressed files
+  (`.gz`, `.bz2`, `.xz`, `.zip`) will be automatically downloaded and
+  decompressed.
 
   Literal data is most useful for examples and tests. To be recognised
   as literal data, wrap the input with
@@ -97,6 +97,8 @@ vroom(
   - c = character
 
   - i = integer
+
+  - I = big integer
 
   - n = number
 
@@ -256,12 +258,6 @@ vroom(
   [`vctrs::vec_as_names()`](https://vctrs.r-lib.org/reference/vec_as_names.html).
   See there for more details on these terms and the strategies used to
   enforce them.
-
-- use_libvroom:
-
-  Use the experimental libvroom SIMD-accelerated CSV parsing backend.
-  This backend can be significantly faster for large files but may not
-  support all features. Defaults to `FALSE`.
 
 ## Examples
 
@@ -482,16 +478,15 @@ vroom(I("a|b\n1.0|2.0\n"), delim = "|")
 #> 1     1     2
 
 # Read datasets across multiple files ---------------------------------------
-mtcars_by_cyl <- vroom_example(vroom_examples("mtcars-"))
+mtcars_by_cyl <- vroom_example(vroom_examples("mtcars-[468]"))
 mtcars_by_cyl
-#> [1] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-4.csv"        
-#> [2] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-6.csv"        
-#> [3] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-8.csv"        
-#> [4] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-multi-cyl.zip"
+#> [1] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-4.csv"
+#> [2] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-6.csv"
+#> [3] "/home/runner/work/_temp/Library/vroom/extdata/mtcars-8.csv"
 
 # Pass the filenames directly to vroom, they are efficiently combined
 vroom(mtcars_by_cyl)
-#> Rows: 43 Columns: 12
+#> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
 #> chr  (1): model
@@ -499,7 +494,7 @@ vroom(mtcars_by_cyl)
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
-#> # A tibble: 43 × 12
+#> # A tibble: 32 × 12
 #>    model      mpg   cyl  disp    hp  drat    wt  qsec    vs    am  gear
 #>    <chr>    <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
 #>  1 Datsun …  22.8     4 108      93  3.85  2.32  18.6     1     1     4
@@ -512,13 +507,13 @@ vroom(mtcars_by_cyl)
 #>  8 Fiat X1…  27.3     4  79      66  4.08  1.94  18.9     1     1     4
 #>  9 Porsche…  26       4 120.     91  4.43  2.14  16.7     0     1     5
 #> 10 Lotus E…  30.4     4  95.1   113  3.77  1.51  16.9     1     1     5
-#> # ℹ 33 more rows
+#> # ℹ 22 more rows
 #> # ℹ 1 more variable: carb <dbl>
 
 # If you need to extract data from the filenames, use `id` to request a
 # column that reveals the underlying file path
 dat <- vroom(mtcars_by_cyl, id = "source")
-#> Rows: 43 Columns: 13
+#> Rows: 32 Columns: 13
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
 #> chr  (1): model
@@ -528,7 +523,7 @@ dat <- vroom(mtcars_by_cyl, id = "source")
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 dat$source <- basename(dat$source)
 dat
-#> # A tibble: 43 × 13
+#> # A tibble: 32 × 13
 #>    source   model   mpg   cyl  disp    hp  drat    wt  qsec    vs    am
 #>    <chr>    <chr> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
 #>  1 mtcars-… Dats…  22.8     4 108      93  3.85  2.32  18.6     1     1
@@ -541,6 +536,6 @@ dat
 #>  8 mtcars-… Fiat…  27.3     4  79      66  4.08  1.94  18.9     1     1
 #>  9 mtcars-… Pors…  26       4 120.     91  4.43  2.14  16.7     0     1
 #> 10 mtcars-… Lotu…  30.4     4  95.1   113  3.77  1.51  16.9     1     1
-#> # ℹ 33 more rows
+#> # ℹ 22 more rows
 #> # ℹ 2 more variables: gear <dbl>, carb <dbl>
 ```
