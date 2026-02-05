@@ -317,13 +317,6 @@ writeLines(vroom_lines(fwf_sample))
 # You can specify column positions in several ways:
 # 1. Guess based on position of empty columns
 vroom_fwf(fwf_sample, fwf_empty(fwf_sample, col_names = c("first", "last", "state", "ssn")))
-#> Rows: 3 Columns: 4
-#> ── Column specification ───────────────────────────────────────────────
-#> 
-#> chr (4): first, last, state, ssn
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 4
 #>   first last     state ssn         
 #>   <chr> <chr>    <chr> <chr>       
@@ -332,13 +325,6 @@ vroom_fwf(fwf_sample, fwf_empty(fwf_sample, col_names = c("first", "last", "stat
 #> 3 Evan  Nolan    IL    219-532-c301
 # 2. A vector of field widths
 vroom_fwf(fwf_sample, fwf_widths(c(20, 10, 12), c("name", "state", "ssn")))
-#> Rows: 3 Columns: 3
-#> ── Column specification ───────────────────────────────────────────────
-#> 
-#> chr (3): name, state, ssn
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 3
 #>   name          state ssn         
 #>   <chr>         <chr> <chr>       
@@ -347,13 +333,6 @@ vroom_fwf(fwf_sample, fwf_widths(c(20, 10, 12), c("name", "state", "ssn")))
 #> 3 Evan Nolan    IL    219-532-c301
 # 3. Paired vectors of start and end positions
 vroom_fwf(fwf_sample, fwf_positions(c(1, 30), c(20, 42), c("name", "ssn")))
-#> Rows: 3 Columns: 2
-#> ── Column specification ───────────────────────────────────────────────
-#> 
-#> chr (2): name, ssn
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 2
 #>   name          ssn         
 #>   <chr>         <chr>       
@@ -362,13 +341,6 @@ vroom_fwf(fwf_sample, fwf_positions(c(1, 30), c(20, 42), c("name", "ssn")))
 #> 3 Evan Nolan    219-532-c301
 # 4. Named arguments with start and end positions
 vroom_fwf(fwf_sample, fwf_cols(name = c(1, 20), ssn = c(30, 42)))
-#> Rows: 3 Columns: 2
-#> ── Column specification ───────────────────────────────────────────────
-#> 
-#> chr (2): name, ssn
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 2
 #>   name          ssn         
 #>   <chr>         <chr>       
@@ -377,13 +349,6 @@ vroom_fwf(fwf_sample, fwf_cols(name = c(1, 20), ssn = c(30, 42)))
 #> 3 Evan Nolan    219-532-c301
 # 5. Named arguments with column widths
 vroom_fwf(fwf_sample, fwf_cols(name = 20, state = 10, ssn = 12))
-#> Rows: 3 Columns: 3
-#> ── Column specification ───────────────────────────────────────────────
-#> 
-#> chr (3): name, state, ssn
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 3
 #>   name          state ssn         
 #>   <chr>         <chr> <chr>       
