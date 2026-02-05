@@ -301,21 +301,6 @@ vroom <- function(
       col_type_names = col_type_names
     )
 
-    # Handle .default expansion: if spec has a non-guess/non-skip default
-    # and columns were not fully specified, expand to all columns
-    if (
-      !is.null(resolved_spec) &&
-        length(resolved_spec$cols) == 0 &&
-        !inherits(resolved_spec$default, "collector_guess") &&
-        !inherits(resolved_spec$default, "collector_skip")
-    ) {
-      n_cols <- ncol(out)
-      resolved_spec$cols <- rep(list(resolved_spec$default), n_cols)
-      names(resolved_spec$cols) <- names(out)
-      col_types_int <- col_types_to_libvroom(resolved_spec)
-      col_type_names <- names(resolved_spec$cols)
-    }
-
     # For cols_only(), drop columns not in the spec
     if (
       !is.null(resolved_spec) &&
@@ -647,18 +632,13 @@ can_libvroom_handle_col_types <- function(col_types) {
       return(FALSE)
     }
   }
-  # Check .default too
+  # Check .default too — if it's anything other than guess/skip, fall back.
+  # We can't expand .default to all columns before the C++ call because we
+
+  # don't know column count yet, so libvroom would use inferred types instead.
   if (!is.null(spec$default)) {
     cls <- class(spec$default)[[1]]
-    if (
-      cls %in%
-        c(
-          "collector_number",
-          "collector_time",
-          "collector_big_integer",
-          "collector_factor"
-        )
-    ) {
+    if (!(cls %in% c("collector_guess", "collector_skip"))) {
       return(FALSE)
     }
   }

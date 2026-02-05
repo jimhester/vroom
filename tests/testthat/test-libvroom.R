@@ -324,7 +324,7 @@ test_that("libvroom handles cols_only()", {
   )
 })
 
-test_that("libvroom handles col_types with .default", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for .default", {
   test_libvroom(
     "a,b,c\n1,2,3\n4,5,6\n",
     delim = ",",
@@ -333,7 +333,7 @@ test_that("libvroom handles col_types with .default", {
   )
 })
 
-test_that("libvroom handles col_number() via post-processing", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for col_number()", {
   test_libvroom(
     "a\n\"1,234.56\"\n\"7,890.12\"\n",
     delim = "\t",
@@ -342,7 +342,7 @@ test_that("libvroom handles col_number() via post-processing", {
   )
 })
 
-test_that("libvroom handles col_factor() via post-processing", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for col_factor()", {
   test_libvroom(
     "a\napple\nbanana\napple\n",
     delim = ",",
@@ -353,7 +353,7 @@ test_that("libvroom handles col_factor() via post-processing", {
   )
 })
 
-test_that("libvroom handles col_time() via post-processing", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for col_time()", {
   test_libvroom(
     "a\n10:01:01\n12:30:00\n",
     delim = ",",
@@ -362,7 +362,7 @@ test_that("libvroom handles col_time() via post-processing", {
   )
 })
 
-test_that("libvroom handles col_date() with custom format via post-processing", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for col_date() with custom format", {
   test_libvroom(
     "a\n01/20/2023\n06/15/2024\n",
     delim = ",",
@@ -371,7 +371,7 @@ test_that("libvroom handles col_date() with custom format via post-processing", 
   )
 })
 
-test_that("libvroom handles col_big_integer() via post-processing", {
+test_that("vroom with use_libvroom=TRUE gracefully falls back for col_big_integer()", {
   test_libvroom(
     "a\n1234567890123\n9876543210987\n",
     delim = ",",
