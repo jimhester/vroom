@@ -514,6 +514,11 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
+  # Only allow col_types that libvroom handles natively
+  if (!can_libvroom_handle_col_types(col_types)) {
+    return(FALSE)
+  }
+
   # No id column (would need file path prepended)
   if (!is.null(id)) {
     return(FALSE)
@@ -592,6 +597,65 @@ col_types_to_libvroom <- function(spec) {
     },
     integer(1)
   )
+}
+
+# Check if all col_types can be handled natively by libvroom.
+# Returns FALSE if any type requires R-side post-processing (mapped to STRING).
+# This prevents regressions for tests that depend on legacy parser features.
+can_libvroom_handle_col_types <- function(col_types) {
+  if (is.null(col_types) || identical(col_types, list())) {
+    return(TRUE)
+  }
+  spec <- as.col_spec(col_types)
+  for (collector in spec$cols) {
+    cls <- class(collector)[[1]]
+    # These types need R-side post-processing or have different behavior
+    if (
+      cls %in%
+        c(
+          "collector_number",
+          "collector_time",
+          "collector_big_integer"
+        )
+    ) {
+      return(FALSE)
+    }
+    # Factor without explicit levels doesn't work with libvroom
+    if (cls == "collector_factor") {
+      return(FALSE)
+    }
+    # Custom date/datetime formats need post-processing
+    if (
+      cls == "collector_date" &&
+        !identical(collector$format, "") &&
+        !identical(collector$format, "%AD")
+    ) {
+      return(FALSE)
+    }
+    if (
+      cls == "collector_datetime" &&
+        !identical(collector$format, "") &&
+        !identical(collector$format, "%AD")
+    ) {
+      return(FALSE)
+    }
+  }
+  # Check .default too
+  if (!is.null(spec$default)) {
+    cls <- class(spec$default)[[1]]
+    if (
+      cls %in%
+        c(
+          "collector_number",
+          "collector_time",
+          "collector_big_integer",
+          "collector_factor"
+        )
+    ) {
+      return(FALSE)
+    }
+  }
+  TRUE
 }
 
 # Build a col_spec from libvroom output for the spec attribute.

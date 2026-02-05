@@ -421,6 +421,9 @@ can_use_libvroom_fwf <- function(file, col_types, locale) {
   if (!is_ascii_compatible(locale$encoding)) {
     return(FALSE)
   }
+  if (!can_libvroom_handle_col_types(col_types)) {
+    return(FALSE)
+  }
   TRUE
 }
 
