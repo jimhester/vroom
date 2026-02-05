@@ -97,6 +97,35 @@ vroom_fwf <- function(
 
   file <- standardise_path(file)
 
+  col_select <- vroom_enquo(enquo(col_select))
+
+  use_libvroom <- can_use_libvroom_fwf(file, col_types, id, n_max, skip, locale)
+  if (use_libvroom) {
+    na_str <- paste(na, collapse = ",")
+    col_ends_int <- as.integer(col_positions$end)
+    col_ends_int[is.na(col_ends_int)] <- -1L
+    out <- vroom_libvroom_fwf_(
+      path = file[[1]],
+      col_starts = as.integer(col_positions$begin),
+      col_ends = col_ends_int,
+      col_names = as.character(col_positions$col_names),
+      trim_ws = trim_ws,
+      comment = comment,
+      skip_empty_rows = skip_empty_rows,
+      na_values = na_str,
+      num_threads = as.integer(num_threads),
+      use_altrep = if (is.character(altrep)) {
+        "chr" %in% altrep
+      } else {
+        isTRUE(altrep)
+      }
+    )
+    out <- tibble::as_tibble(out, .name_repair = .name_repair)
+    out <- vroom_select(out, col_select, id)
+    class(out) <- c("spec_tbl_df", class(out))
+    return(out)
+  }
+
   if (!is_ascii_compatible(locale$encoding)) {
     file <- reencode_file(file, locale$encoding)
     locale$encoding <- "UTF-8"
@@ -118,8 +147,6 @@ vroom_fwf <- function(
   if (guess_max < 0 || is.infinite(guess_max)) {
     guess_max <- -1
   }
-
-  col_select <- vroom_enquo(enquo(col_select))
 
   has_col_types <- !is.null(col_types)
 
@@ -285,6 +312,42 @@ fwf_col_names <- function(nm, n) {
   nm_empty <- (nm == "")
   nm[nm_empty] <- paste0("X", seq_len(n))[nm_empty]
   nm
+}
+
+can_use_libvroom_fwf <- function(file, col_types, id, n_max, skip, locale) {
+  if (length(file) != 1) {
+    return(FALSE)
+  }
+  if (!is.character(file[[1]])) {
+    return(FALSE)
+  }
+  path <- file[[1]]
+  if (grepl("^(https?|ftp|ftps)://", path)) {
+    return(FALSE)
+  }
+  if (!file.exists(path)) {
+    return(FALSE)
+  }
+  ext <- tolower(tools::file_ext(path))
+  if (ext %in% c("gz", "bz2", "xz", "zip", "zst")) {
+    return(FALSE)
+  }
+  if (!is.null(col_types)) {
+    return(FALSE)
+  }
+  if (!is.null(id)) {
+    return(FALSE)
+  }
+  if (!is.infinite(n_max) && n_max >= 0) {
+    return(FALSE)
+  }
+  if (skip > 0) {
+    return(FALSE)
+  }
+  if (!is_ascii_compatible(locale$encoding)) {
+    return(FALSE)
+  }
+  TRUE
 }
 
 verify_fwf_positions <- function(col_positions) {
