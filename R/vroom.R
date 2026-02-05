@@ -361,7 +361,8 @@ vroom <- function(
       row = integer(),
       col = integer(),
       expected = character(),
-      actual = character()
+      actual = character(),
+      file = character()
     )
 
     class(out) <- c("spec_tbl_df", class(out))
