@@ -239,7 +239,6 @@ vroom <- function(
     use_libvroom <- can_use_libvroom(
       file,
       delim,
-      col_names,
       col_types,
       id,
       n_max,
@@ -454,7 +453,6 @@ vroom <- function(
 can_use_libvroom <- function(
   file,
   delim,
-  col_names,
   col_types,
   id,
   n_max,
