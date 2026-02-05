@@ -55,6 +55,8 @@ struct FwfOptions {
   std::string null_values = "NA,null,NULL,";
   std::string true_values = "true,TRUE,True,yes,YES,Yes";
   std::string false_values = "false,FALSE,False,no,NO,No";
+  size_t skip = 0;                    // Number of data lines to skip after comments
+  int64_t max_rows = -1;             // Max rows to read (-1 = unlimited)
   size_t sample_rows = 1000;
   size_t chunk_size = 0;
   size_t num_threads = 0;

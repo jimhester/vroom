@@ -15,6 +15,8 @@
     const std::string& comment,
     bool skip_empty_rows,
     const std::string& na_values,
+    int skip,
+    int n_max,
     int num_threads,
     bool use_altrep) {
 
@@ -30,6 +32,10 @@
   opts.skip_empty_rows = skip_empty_rows;
   if (!na_values.empty())
     opts.null_values = na_values;
+  if (skip > 0)
+    opts.skip = static_cast<size_t>(skip);
+  if (n_max >= 0)
+    opts.max_rows = static_cast<int64_t>(n_max);
   if (num_threads > 0)
     opts.num_threads = static_cast<size_t>(num_threads);
 

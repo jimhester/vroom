@@ -99,7 +99,7 @@ vroom_fwf <- function(
 
   col_select <- vroom_enquo(enquo(col_select))
 
-  use_libvroom <- can_use_libvroom_fwf(file, col_types, id, n_max, skip, locale)
+  use_libvroom <- can_use_libvroom_fwf(file, col_types, locale)
   if (use_libvroom) {
     input <- file[[1]]
     if (inherits(input, "connection")) {
@@ -109,6 +109,7 @@ vroom_fwf <- function(
       }
     }
 
+    n_max_int <- if (is.infinite(n_max) || n_max < 0) -1L else as.integer(n_max)
     na_str <- paste(na, collapse = ",")
     col_ends_int <- as.integer(col_positions$end)
     col_ends_int[is.na(col_ends_int)] <- -1L
@@ -121,6 +122,8 @@ vroom_fwf <- function(
       comment = comment,
       skip_empty_rows = skip_empty_rows,
       na_values = na_str,
+      skip = as.integer(skip),
+      n_max = n_max_int,
       num_threads = as.integer(num_threads),
       use_altrep = if (is.character(altrep)) {
         "chr" %in% altrep
@@ -129,6 +132,14 @@ vroom_fwf <- function(
       }
     )
     out <- tibble::as_tibble(out, .name_repair = .name_repair)
+    if (!is.null(id)) {
+      path_value <- if (is.character(file[[1]])) file[[1]] else NA_character_
+      out <- tibble::add_column(
+        out,
+        !!id := rep(path_value, nrow(out)),
+        .before = 1
+      )
+    }
     out <- vroom_select(out, col_select, id)
     class(out) <- c("spec_tbl_df", class(out))
     return(out)
@@ -322,7 +333,7 @@ fwf_col_names <- function(nm, n) {
   nm
 }
 
-can_use_libvroom_fwf <- function(file, col_types, id, n_max, skip, locale) {
+can_use_libvroom_fwf <- function(file, col_types, locale) {
   if (length(file) != 1) {
     return(FALSE)
   }
@@ -347,15 +358,6 @@ can_use_libvroom_fwf <- function(file, col_types, id, n_max, skip, locale) {
   }
 
   if (!is.null(col_types)) {
-    return(FALSE)
-  }
-  if (!is.null(id)) {
-    return(FALSE)
-  }
-  if (!is.infinite(n_max) && n_max >= 0) {
-    return(FALSE)
-  }
-  if (skip > 0) {
     return(FALSE)
   }
   if (!is_ascii_compatible(locale$encoding)) {

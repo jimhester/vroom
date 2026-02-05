@@ -752,3 +752,132 @@ test_that("libvroom FWF: connection matches file for type inference", {
   expect_type(direct$X2, "logical")
   expect_type(direct$X3, "double")
 })
+
+test_that("libvroom FWF: skip works", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc",
+    "  4 ddd"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, skip = 2)
+  expect_equal(nrow(result), 2)
+  expect_equal(result$X1, 3:4)
+  expect_equal(result$X2, c("ccc", "ddd"))
+})
+
+test_that("libvroom FWF: n_max works", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc",
+    "  4 ddd"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, n_max = 2)
+  expect_equal(nrow(result), 2)
+  expect_equal(result$X1, 1:2)
+  expect_equal(result$X2, c("aaa", "bbb"))
+})
+
+test_that("libvroom FWF: skip + n_max combined", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc",
+    "  4 ddd",
+    "  5 eee"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, skip = 1, n_max = 2)
+  expect_equal(nrow(result), 2)
+  expect_equal(result$X1, 2:3)
+  expect_equal(result$X2, c("bbb", "ccc"))
+})
+
+test_that("libvroom FWF: n_max = 0 returns empty tibble", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, n_max = 0)
+  expect_equal(nrow(result), 0)
+  expect_equal(ncol(result), 2)
+})
+
+test_that("libvroom FWF: id column works with file path", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, id = "source")
+  expect_equal(ncol(result), 3)
+  expect_equal(names(result)[1], "source")
+  expect_equal(result$source, rep(f, 3))
+  expect_equal(result$X1, 1:3)
+})
+
+test_that("libvroom FWF: id column with connection gives NA", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(file(f), pos, id = "source")
+  expect_equal(ncol(result), 3)
+  expect_equal(names(result)[1], "source")
+  expect_true(all(is.na(result$source)))
+})
+
+test_that("libvroom FWF: skip + n_max + id combined", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc",
+    "  4 ddd"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  result <- vroom_fwf(f, pos, skip = 1, n_max = 2, id = "file")
+  expect_equal(nrow(result), 2)
+  expect_equal(names(result)[1], "file")
+  expect_equal(result$X1, 2:3)
+})
+
+test_that("libvroom FWF: skip with connection", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  direct <- vroom_fwf(f, pos, skip = 1)
+  from_con <- vroom_fwf(file(f), pos, skip = 1)
+  expect_equal(direct$X1, from_con$X1)
+  expect_equal(direct$X2, from_con$X2)
+})
+
+test_that("libvroom FWF: n_max with connection", {
+  f <- write_fwf_file(c(
+    "  1 aaa",
+    "  2 bbb",
+    "  3 ccc"
+  ))
+  pos <- fwf_widths(c(3, 4))
+
+  direct <- vroom_fwf(f, pos, n_max = 2)
+  from_con <- vroom_fwf(file(f), pos, n_max = 2)
+  expect_equal(direct$X1, from_con$X1)
+  expect_equal(direct$X2, from_con$X2)
+})

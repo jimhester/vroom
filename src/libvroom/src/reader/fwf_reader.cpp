@@ -40,6 +40,33 @@ static size_t skip_leading_comment_lines_fwf(const char* data, size_t size, char
   return offset;
 }
 
+// Skip N data lines (for the skip option). Returns offset past skipped lines.
+static size_t skip_n_lines(const char* data, size_t size, size_t n) {
+  if (n == 0 || size == 0) {
+    return 0;
+  }
+
+  size_t offset = 0;
+  size_t lines_skipped = 0;
+  while (offset < size && lines_skipped < n) {
+    // Scan to end of line
+    while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
+      offset++;
+    }
+    // Advance past line ending
+    if (offset < size && data[offset] == '\r') {
+      offset++;
+      if (offset < size && data[offset] == '\n') {
+        offset++;
+      }
+    } else if (offset < size && data[offset] == '\n') {
+      offset++;
+    }
+    lines_skipped++;
+  }
+  return offset;
+}
+
 // Trim leading and trailing whitespace (spaces and tabs)
 static std::string_view trim_whitespace(std::string_view sv) {
   size_t start = 0;
@@ -55,9 +82,10 @@ static std::string_view trim_whitespace(std::string_view sv) {
 
 // Parse a chunk of FWF data into column builders.
 // Returns the number of rows parsed.
+// max_rows: maximum rows to parse (-1 = unlimited)
 static size_t parse_fwf_chunk(
     const char* data, size_t size, const FwfOptions& options, const NullChecker& null_checker,
-    std::vector<std::unique_ptr<ArrowColumnBuilder>>& columns) {
+    std::vector<std::unique_ptr<ArrowColumnBuilder>>& columns, int64_t max_rows = -1) {
   if (size == 0 || columns.empty()) {
     return 0;
   }
@@ -72,7 +100,7 @@ static size_t parse_fwf_chunk(
   size_t offset = 0;
   size_t row_count = 0;
 
-  while (offset < size) {
+  while (offset < size && (max_rows < 0 || static_cast<int64_t>(row_count) < max_rows)) {
     // Skip empty lines
     if (options.skip_empty_rows) {
       while (offset < size) {
@@ -388,7 +416,16 @@ Result<bool> FwfReader::open(const std::string& path) {
     }
   }
 
-  impl_->data_start_offset = 0; // Data starts at beginning (after comment skip)
+  // Skip N data lines (user-specified skip)
+  if (impl_->options.skip > 0) {
+    size_t line_skip = skip_n_lines(data, size, impl_->options.skip);
+    impl_->data_ptr += line_skip;
+    impl_->data_size -= line_skip;
+    data = impl_->data_ptr;
+    size = impl_->data_size;
+  }
+
+  impl_->data_start_offset = 0; // Data starts at beginning (after comment/line skip)
 
   // Build schema from col_names
   size_t num_cols = impl_->options.col_starts.size();
@@ -404,7 +441,7 @@ Result<bool> FwfReader::open(const std::string& path) {
     impl_->schema.push_back(std::move(col));
   }
 
-  // Type inference on sample rows
+  // Type inference on sample rows (from data after skip)
   if (!impl_->schema.empty()) {
     auto inferred_types = infer_fwf_types(data, size, impl_->options, impl_->options.sample_rows);
     for (size_t i = 0; i < impl_->schema.size() && i < inferred_types.size(); ++i) {
@@ -474,6 +511,15 @@ Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
     }
   }
 
+  // Skip N data lines (user-specified skip)
+  if (impl_->options.skip > 0) {
+    size_t line_skip = skip_n_lines(data, size, impl_->options.skip);
+    impl_->data_ptr += line_skip;
+    impl_->data_size -= line_skip;
+    data = impl_->data_ptr;
+    size = impl_->data_size;
+  }
+
   impl_->data_start_offset = 0;
 
   // Build schema from col_names
@@ -490,7 +536,7 @@ Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
     impl_->schema.push_back(std::move(col));
   }
 
-  // Type inference on sample rows
+  // Type inference on sample rows (from data after skip)
   if (!impl_->schema.empty()) {
     auto inferred_types = infer_fwf_types(data, size, impl_->options, impl_->options.sample_rows);
     for (size_t i = 0; i < impl_->schema.size() && i < inferred_types.size(); ++i) {
@@ -532,7 +578,8 @@ Result<ParsedChunks> FwfReader::read_all_serial() {
   size_t size = impl_->data_size;
   NullChecker null_checker(impl_->options);
 
-  size_t rows = parse_fwf_chunk(data, size, impl_->options, null_checker, columns);
+  size_t rows =
+      parse_fwf_chunk(data, size, impl_->options, null_checker, columns, impl_->options.max_rows);
 
   result.total_rows = rows;
   impl_->row_count = rows;
@@ -552,9 +599,11 @@ Result<bool> FwfReader::start_streaming() {
   size_t size = impl_->data_size;
   size_t data_size = size;
 
-  // Small files: serial parsing
+  // Small files or row-limited reads: serial parsing
+  // (row limits require global coordination, so use serial path)
   constexpr size_t PARALLEL_THRESHOLD = 1024 * 1024; // 1MB
-  if (data_size < PARALLEL_THRESHOLD) {
+  bool has_row_limit = impl_->options.max_rows >= 0;
+  if (data_size < PARALLEL_THRESHOLD || has_row_limit) {
     auto serial_result = read_all_serial();
     if (!serial_result.ok) {
       return Result<bool>::failure(serial_result.error);
