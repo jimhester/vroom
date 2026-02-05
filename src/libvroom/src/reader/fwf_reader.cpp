@@ -417,6 +417,92 @@ Result<bool> FwfReader::open(const std::string& path) {
   return Result<bool>::success(true);
 }
 
+Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
+  impl_->owned_buffer = std::move(buffer);
+  impl_->data_ptr = reinterpret_cast<const char*>(impl_->owned_buffer.data());
+  impl_->data_size = impl_->owned_buffer.size();
+
+  if (impl_->data_size == 0) {
+    return Result<bool>::failure("Empty buffer");
+  }
+
+  // Detect encoding and transcode if needed
+  {
+    const auto* raw = reinterpret_cast<const uint8_t*>(impl_->data_ptr);
+    size_t raw_size = impl_->data_size;
+
+    if (impl_->options.encoding.has_value()) {
+      impl_->detected_encoding.encoding = *impl_->options.encoding;
+      auto bom_result = detect_encoding(raw, raw_size);
+      if (bom_result.encoding == *impl_->options.encoding ||
+          (*impl_->options.encoding == CharEncoding::UTF8 &&
+           bom_result.encoding == CharEncoding::UTF8_BOM)) {
+        impl_->detected_encoding.bom_length = bom_result.bom_length;
+      }
+      impl_->detected_encoding.confidence = 1.0;
+      impl_->detected_encoding.needs_transcoding =
+          (*impl_->options.encoding != CharEncoding::UTF8 &&
+           *impl_->options.encoding != CharEncoding::UTF8_BOM);
+    } else {
+      impl_->detected_encoding = detect_encoding(raw, raw_size);
+    }
+
+    if (impl_->detected_encoding.needs_transcoding) {
+      AlignedBuffer transcoded = transcode_to_utf8(raw, raw_size, impl_->detected_encoding.encoding,
+                                                    impl_->detected_encoding.bom_length);
+      impl_->owned_buffer = std::move(transcoded);
+      impl_->data_ptr = reinterpret_cast<const char*>(impl_->owned_buffer.data());
+      impl_->data_size = impl_->owned_buffer.size();
+    } else if (impl_->detected_encoding.bom_length > 0) {
+      impl_->data_ptr += impl_->detected_encoding.bom_length;
+      impl_->data_size -= impl_->detected_encoding.bom_length;
+    }
+  }
+
+  const char* data = impl_->data_ptr;
+  size_t size = impl_->data_size;
+
+  // Skip leading comment lines
+  size_t comment_skip = skip_leading_comment_lines_fwf(data, size, impl_->options.comment);
+  if (comment_skip > 0) {
+    impl_->data_ptr += comment_skip;
+    impl_->data_size -= comment_skip;
+    data = impl_->data_ptr;
+    size = impl_->data_size;
+    if (size == 0) {
+      return Result<bool>::failure("Buffer contains only comment lines");
+    }
+  }
+
+  impl_->data_start_offset = 0;
+
+  // Build schema from col_names
+  size_t num_cols = impl_->options.col_starts.size();
+  for (size_t i = 0; i < num_cols; ++i) {
+    ColumnSchema col;
+    if (i < impl_->options.col_names.size()) {
+      col.name = impl_->options.col_names[i];
+    } else {
+      col.name = "X" + std::to_string(i + 1);
+    }
+    col.index = i;
+    col.type = DataType::STRING;
+    impl_->schema.push_back(std::move(col));
+  }
+
+  // Type inference on sample rows
+  if (!impl_->schema.empty()) {
+    auto inferred_types = infer_fwf_types(data, size, impl_->options, impl_->options.sample_rows);
+    for (size_t i = 0; i < impl_->schema.size() && i < inferred_types.size(); ++i) {
+      impl_->schema[i].type = inferred_types[i];
+    }
+  }
+
+  impl_->row_count = 0;
+
+  return Result<bool>::success(true);
+}
+
 const std::vector<ColumnSchema>& FwfReader::schema() const {
   return impl_->schema;
 }

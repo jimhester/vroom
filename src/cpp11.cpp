@@ -112,10 +112,10 @@ extern "C" SEXP _vroom_whitespace_columns_(SEXP filename, SEXP skip, SEXP n, SEX
   END_CPP11
 }
 // vroom_fwf_libvroom.cpp
-cpp11::sexp vroom_libvroom_fwf_(const std::string& path, const std::vector<int>& col_starts, const std::vector<int>& col_ends, const cpp11::strings& col_names, bool trim_ws, const std::string& comment, bool skip_empty_rows, const std::string& na_values, int num_threads, bool use_altrep);
-extern "C" SEXP _vroom_vroom_libvroom_fwf_(SEXP path, SEXP col_starts, SEXP col_ends, SEXP col_names, SEXP trim_ws, SEXP comment, SEXP skip_empty_rows, SEXP na_values, SEXP num_threads, SEXP use_altrep) {
+cpp11::sexp vroom_libvroom_fwf_(SEXP input, const std::vector<int>& col_starts, const std::vector<int>& col_ends, const cpp11::strings& col_names, bool trim_ws, const std::string& comment, bool skip_empty_rows, const std::string& na_values, int num_threads, bool use_altrep);
+extern "C" SEXP _vroom_vroom_libvroom_fwf_(SEXP input, SEXP col_starts, SEXP col_ends, SEXP col_names, SEXP trim_ws, SEXP comment, SEXP skip_empty_rows, SEXP na_values, SEXP num_threads, SEXP use_altrep) {
   BEGIN_CPP11
-    return cpp11::as_sexp(vroom_libvroom_fwf_(cpp11::as_cpp<cpp11::decay_t<const std::string&>>(path), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_starts), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_ends), cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(col_names), cpp11::as_cpp<cpp11::decay_t<bool>>(trim_ws), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep)));
+    return cpp11::as_sexp(vroom_libvroom_fwf_(cpp11::as_cpp<cpp11::decay_t<SEXP>>(input), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_starts), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_ends), cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(col_names), cpp11::as_cpp<cpp11::decay_t<bool>>(trim_ws), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep)));
   END_CPP11
 }
 // vroom_new.cpp

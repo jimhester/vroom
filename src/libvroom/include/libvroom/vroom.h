@@ -96,6 +96,10 @@ public:
   // Open a FWF file
   Result<bool> open(const std::string& path);
 
+  // Open from a pre-loaded buffer (e.g., connection data)
+  // Takes ownership of the buffer
+  Result<bool> open_from_buffer(AlignedBuffer buffer);
+
   // Get detected schema after opening
   const std::vector<ColumnSchema>& schema() const;
 

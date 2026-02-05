@@ -693,3 +693,62 @@ test_that("libvroom FWF: NA values handled correctly", {
   expect_equal(result$X1, c(1L, NA, 3L))
   expect_equal(result$X2, c("hello", NA, "world"))
 })
+
+test_that("libvroom FWF: file connection reads correctly", {
+  f <- write_fwf_file(c(
+    "John Smith          WA        418-Y11-4111",
+    "Mary Hartford       CA        319-Z19-4341",
+    "Evan Nolan          IL        219-532-c301"
+  ))
+  pos <- fwf_widths(c(20, 10, 12), c("name", "state", "ssn"))
+
+  # Read via file path (libvroom path)
+  direct <- vroom_fwf(f, pos)
+  # Read via file() connection (also libvroom path)
+  from_con <- vroom_fwf(file(f), pos)
+
+  expect_equal(direct$name, from_con$name)
+  expect_equal(direct$state, from_con$state)
+  expect_equal(direct$ssn, from_con$ssn)
+})
+
+test_that("libvroom FWF: rawConnection reads correctly", {
+  lines <- "  1 hello\n  2 world\n  3 vroom\n"
+  raw_data <- charToRaw(lines)
+  result <- vroom_fwf(rawConnection(raw_data), fwf_widths(c(3, 6)))
+  expect_equal(result$X1, 1:3)
+  expect_equal(result$X2, c("hello", "world", "vroom"))
+})
+
+test_that("libvroom FWF: gzfile connection reads correctly", {
+  f <- write_fwf_file(c(
+    "  1 hello",
+    "  2 world",
+    "  3 vroom"
+  ))
+  gz_file <- tempfile(fileext = ".gz")
+  con <- gzfile(gz_file, "wb")
+  writeLines(readLines(f), con)
+  close(con)
+
+  result <- vroom_fwf(gzfile(gz_file), fwf_widths(c(3, 6)))
+  expect_equal(result$X1, 1:3)
+  expect_equal(result$X2, c("hello", "world", "vroom"))
+})
+
+test_that("libvroom FWF: connection matches file for type inference", {
+  f <- write_fwf_file(c(
+    "  1 TRUE  3.14",
+    "  2 FALSE 2.72",
+    "  3 TRUE  1.41"
+  ))
+  pos <- fwf_widths(c(3, 6, 5))
+
+  direct <- vroom_fwf(f, pos)
+  from_con <- vroom_fwf(file(f), pos)
+
+  expect_equal(direct, from_con)
+  expect_type(direct$X1, "integer")
+  expect_type(direct$X2, "logical")
+  expect_type(direct$X3, "double")
+})

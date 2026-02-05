@@ -101,11 +101,19 @@ vroom_fwf <- function(
 
   use_libvroom <- can_use_libvroom_fwf(file, col_types, id, n_max, skip, locale)
   if (use_libvroom) {
+    input <- file[[1]]
+    if (inherits(input, "connection")) {
+      input <- read_connection_raw(input)
+      if (length(input) == 0L) {
+        return(tibble::tibble())
+      }
+    }
+
     na_str <- paste(na, collapse = ",")
     col_ends_int <- as.integer(col_positions$end)
     col_ends_int[is.na(col_ends_int)] <- -1L
     out <- vroom_libvroom_fwf_(
-      path = file[[1]],
+      input = input,
       col_starts = as.integer(col_positions$begin),
       col_ends = col_ends_int,
       col_names = as.character(col_positions$col_names),
@@ -318,20 +326,26 @@ can_use_libvroom_fwf <- function(file, col_types, id, n_max, skip, locale) {
   if (length(file) != 1) {
     return(FALSE)
   }
-  if (!is.character(file[[1]])) {
+
+  input <- file[[1]]
+  if (is.character(input)) {
+    if (grepl("^(https?|ftp|ftps)://", input)) {
+      return(FALSE)
+    }
+    if (!file.exists(input)) {
+      return(FALSE)
+    }
+    ext <- tolower(tools::file_ext(input))
+    if (ext %in% c("gz", "bz2", "xz", "zip", "zst")) {
+      return(FALSE)
+    }
+    if (file.size(input) == 0) {
+      return(FALSE)
+    }
+  } else if (!inherits(input, "connection")) {
     return(FALSE)
   }
-  path <- file[[1]]
-  if (grepl("^(https?|ftp|ftps)://", path)) {
-    return(FALSE)
-  }
-  if (!file.exists(path)) {
-    return(FALSE)
-  }
-  ext <- tolower(tools::file_ext(path))
-  if (ext %in% c("gz", "bz2", "xz", "zip", "zst")) {
-    return(FALSE)
-  }
+
   if (!is.null(col_types)) {
     return(FALSE)
   }
