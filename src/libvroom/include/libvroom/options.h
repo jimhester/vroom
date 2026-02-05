@@ -23,6 +23,9 @@ struct CsvOptions {
   std::string true_values = "true,TRUE,True,yes,YES,Yes";
   std::string false_values = "false,FALSE,False,no,NO,No";
 
+  // Type inference options
+  bool guess_integer = false; // When false, integer-like values infer as FLOAT64 (R parity)
+
   // Performance tuning
   size_t sample_rows = 1000; // Rows to sample for type inference
   size_t chunk_size = 0;     // 0 = auto-detect based on file size and width

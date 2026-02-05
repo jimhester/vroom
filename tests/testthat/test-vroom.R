@@ -320,6 +320,16 @@ test_that("vroom can read a file with only headers", {
   )
 })
 
+test_that("libvroom infers correct types for single-row files", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+  writeLines(c("x,y", "1,hello"), tf)
+
+  res <- vroom(tf, delim = ",", show_col_types = FALSE)
+  expect_type(res$x, "double")
+  expect_type(res$y, "character")
+})
+
 test_that("vroom can read an empty file", {
   test_vroom("\n", equals = tibble::tibble())
 
