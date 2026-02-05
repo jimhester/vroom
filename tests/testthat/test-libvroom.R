@@ -456,3 +456,12 @@ test_that("libvroom auto-detects delimiter", {
     tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
   )
 })
+
+test_that("libvroom handles skip parameter", {
+  test_libvroom(
+    "metadata line 1\nmetadata line 2\na,b,c\n1,2,3\n4,5,6\n",
+    delim = ",",
+    skip = 2,
+    equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+})

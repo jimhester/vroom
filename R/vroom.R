@@ -476,11 +476,6 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # No skip
-  if (skip > 0) {
-    return(FALSE)
-  }
-
   # Must use default escape behavior
   if (!isTRUE(escape_double)) {
     return(FALSE)
