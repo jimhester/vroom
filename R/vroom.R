@@ -272,6 +272,19 @@ vroom <- function(
     col_type_names <- ct$col_type_names
     resolved_spec <- ct$resolved_spec
 
+    # When col_names is not TRUE, libvroom uses V1, V2, ... internally.
+    # Translate user-provided col_type_names to match libvroom's V-names.
+    libvroom_col_type_names <- col_type_names
+    if (
+      !isTRUE(col_names) &&
+        is.character(col_names) &&
+        length(col_type_names) > 0
+    ) {
+      r_to_v <- setNames(paste0("V", seq_along(col_names)), col_names)
+      matched <- r_to_v[col_type_names]
+      libvroom_col_type_names[!is.na(matched)] <- matched[!is.na(matched)]
+    }
+
     out <- vroom_libvroom_(
       input = input,
       delim = delim %||% "",
@@ -290,8 +303,15 @@ vroom <- function(
         isTRUE(altrep)
       },
       col_types = col_types_int,
-      col_type_names = col_type_names
+      col_type_names = libvroom_col_type_names
     )
+
+    # Apply col_names renaming for non-TRUE col_names
+    if (is.character(col_names)) {
+      names(out) <- make_names(col_names, ncol(out))
+    } else if (isFALSE(col_names)) {
+      names(out) <- make_names(character(), ncol(out))
+    }
 
     out <- filter_cols_only_and_skip(
       out,
@@ -458,11 +478,6 @@ can_use_libvroom <- function(
       return(FALSE)
     }
   } else if (!inherits(input, "connection")) {
-    return(FALSE)
-  }
-
-  # col_names must be TRUE (libvroom handles headers internally)
-  if (!isTRUE(col_names)) {
     return(FALSE)
   }
 
