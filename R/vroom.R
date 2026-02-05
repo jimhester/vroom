@@ -267,18 +267,10 @@ vroom <- function(
 
     na_str <- paste(na, collapse = ",")
 
-    # Resolve col_types for libvroom
-    col_types_int <- integer(0)
-    col_type_names <- character(0)
-    resolved_spec <- NULL
-    if (!is.null(col_types) && !identical(col_types, list())) {
-      resolved_spec <- as.col_spec(col_types)
-      col_types_int <- col_types_to_libvroom(resolved_spec)
-      spec_names <- names(resolved_spec$cols)
-      if (!is.null(spec_names) && !all(spec_names == "")) {
-        col_type_names <- spec_names
-      }
-    }
+    ct <- resolve_libvroom_col_types(col_types)
+    col_types_int <- ct$col_types_int
+    col_type_names <- ct$col_type_names
+    resolved_spec <- ct$resolved_spec
 
     out <- vroom_libvroom_(
       input = input,
@@ -301,27 +293,12 @@ vroom <- function(
       col_type_names = col_type_names
     )
 
-    # For cols_only(), drop columns not in the spec
-    if (
-      !is.null(resolved_spec) &&
-        inherits(resolved_spec$default, "collector_skip") &&
-        length(col_type_names) > 0
-    ) {
-      keep_cols <- names(out) %in% col_type_names
-      out <- out[, keep_cols, drop = FALSE]
-    }
-
-    # Drop skipped columns from output (compact notation like "i_d")
-    if (length(col_types_int) > 0 && length(col_type_names) == 0) {
-      skip_mask <- col_types_int == -1L
-      if (any(skip_mask)) {
-        keep <- !skip_mask[seq_len(min(length(skip_mask), ncol(out)))]
-        if (length(keep) < ncol(out)) {
-          keep <- c(keep, rep(TRUE, ncol(out) - length(keep)))
-        }
-        out <- out[, keep, drop = FALSE]
-      }
-    }
+    out <- filter_cols_only_and_skip(
+      out,
+      resolved_spec,
+      col_types_int,
+      col_type_names
+    )
 
     # Apply R-side post-processing for types libvroom parsed as STRING
     out <- apply_col_postprocessing(
@@ -346,16 +323,7 @@ vroom <- function(
 
     out <- apply_libvroom_col_select(out, col_select)
 
-    # Add empty problems attribute (libvroom doesn't track parse errors yet)
-    attr(out, "problems") <- tibble::tibble(
-      row = integer(),
-      col = integer(),
-      expected = character(),
-      actual = character(),
-      file = character()
-    )
-
-    class(out) <- c("spec_tbl_df", class(out))
+    out <- finalize_libvroom_result(out)
 
     return(out)
   }
@@ -434,16 +402,15 @@ vroom <- function(
     }
   }
 
-  out <- tibble::as_tibble(out, .name_repair = identity)
-
-  out <- vroom_select(out, col_select, id)
-  class(out) <- c("spec_tbl_df", class(out))
-
-  if (should_show_col_types(has_col_types, show_col_types)) {
-    show_col_types(out, locale)
-  }
-
-  out
+  postprocess_result(
+    out,
+    col_select,
+    id,
+    identity,
+    has_col_types,
+    show_col_types,
+    locale
+  )
 }
 
 # Check if we can use the libvroom SIMD backend for this read
