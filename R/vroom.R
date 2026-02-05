@@ -326,6 +326,11 @@ vroom <- function(
 
     out <- finalize_libvroom_result(out)
 
+    has_col_types <- !is.null(col_types) && !identical(col_types, list())
+    if (should_show_col_types(has_col_types, show_col_types)) {
+      show_col_types(out, locale)
+    }
+
     return(out)
   }
 
