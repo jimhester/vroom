@@ -294,28 +294,45 @@ vroom <- function(
       default_col_type <- collector_to_libvroom_int(resolved_spec$default)
     }
 
-    out <- vroom_libvroom_(
-      input = input,
-      delim = delim %||% "",
-      quote = quote,
-      has_header = isTRUE(col_names),
-      skip = as.integer(skip),
-      comment = comment,
-      skip_empty_rows = skip_empty_rows,
-      trim_ws = trim_ws,
-      na_values = na_str,
-      num_threads = as.integer(num_threads),
-      strings_as_factors = FALSE,
-      use_altrep = if (is.character(altrep)) {
-        "chr" %in% altrep
-      } else {
-        isTRUE(altrep)
-      },
-      col_types = col_types_int,
-      col_type_names = libvroom_col_type_names,
-      default_col_type = default_col_type
+    out <- tryCatch(
+      vroom_libvroom_(
+        input = input,
+        delim = delim %||% "",
+        quote = quote,
+        has_header = isTRUE(col_names),
+        skip = as.integer(skip),
+        comment = comment,
+        skip_empty_rows = skip_empty_rows,
+        trim_ws = trim_ws,
+        na_values = na_str,
+        num_threads = as.integer(num_threads),
+        strings_as_factors = FALSE,
+        use_altrep = if (is.character(altrep)) {
+          "chr" %in% altrep
+        } else {
+          isTRUE(altrep)
+        },
+        col_types = col_types_int,
+        col_type_names = libvroom_col_type_names,
+        default_col_type = default_col_type
+      ),
+      error = function(e) {
+        if (grepl("All data was skipped", conditionMessage(e), fixed = TRUE)) {
+          NULL
+        } else {
+          stop(e)
+        }
+      }
     )
 
+    # If skip consumed all data, fall back to legacy parser which can
+    # infer column structure from col_types alone
+    if (is.null(out)) {
+      use_libvroom <- FALSE
+    }
+  }
+
+  if (use_libvroom) {
     # Apply n_max row limit (R-side truncation)
     if (!is.infinite(n_max) && n_max >= 0 && nrow(out) > n_max) {
       out <- out[seq_len(n_max), , drop = FALSE]
@@ -467,6 +484,12 @@ can_use_libvroom <- function(
   locale,
   comment = ""
 ) {
+  # Must have an explicit delimiter (libvroom auto-detection doesn't yet
+  # match legacy parser behavior for problems(), spec(), and edge cases)
+  if (is.null(delim)) {
+    return(FALSE)
+  }
+
   if (length(file) != 1) {
     return(FALSE)
   }
@@ -520,6 +543,11 @@ can_use_libvroom <- function(
     return(FALSE)
   }
   if (!identical(locale$date_format, "%AD")) {
+    return(FALSE)
+  }
+
+  # No comment character (libvroom handles mid-field comments differently)
+  if (nzchar(comment)) {
     return(FALSE)
   }
 
