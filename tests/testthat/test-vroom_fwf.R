@@ -882,3 +882,62 @@ test_that("libvroom FWF: n_max with connection", {
   expect_equal(direct$X1, from_con$X1)
   expect_equal(direct$X2, from_con$X2)
 })
+
+test_that("libvroom FWF handles explicit col_types with compact notation", {
+  tf <- tempfile()
+  on.exit(unlink(tf))
+  writeLines(c("  12  34 TRUE", "  56  78FALSE"), tf)
+
+  result <- vroom_fwf(
+    tf,
+    fwf_widths(c(4, 4, 5), c("a", "b", "c")),
+    col_types = "idc"
+  )
+  expect_equal(result$a, c(12L, 56L))
+  expect_type(result$b, "double")
+  expect_type(result$c, "character")
+})
+
+test_that("libvroom FWF handles col_skip", {
+  tf <- tempfile()
+  on.exit(unlink(tf))
+  writeLines(c("  12  34hello", "  56  78world"), tf)
+
+  result <- vroom_fwf(
+    tf,
+    fwf_widths(c(4, 4, 5), c("a", "b", "c")),
+    col_types = "i_c"
+  )
+  expect_equal(names(result), c("a", "c"))
+  expect_equal(result$a, c(12L, 56L))
+})
+
+test_that("libvroom FWF handles cols() with named columns", {
+  tf <- tempfile()
+  on.exit(unlink(tf))
+  writeLines(c("  12  34hello", "  56  78world"), tf)
+
+  result <- vroom_fwf(
+    tf,
+    fwf_widths(c(4, 4, 5), c("a", "b", "c")),
+    col_types = cols(a = col_integer(), b = col_double(), c = col_character())
+  )
+  expect_equal(result$a, c(12L, 56L))
+  expect_type(result$b, "double")
+  expect_type(result$c, "character")
+})
+
+test_that("libvroom FWF handles cols_only()", {
+  tf <- tempfile()
+  on.exit(unlink(tf))
+  writeLines(c("  12  34hello", "  56  78world"), tf)
+
+  result <- vroom_fwf(
+    tf,
+    fwf_widths(c(4, 4, 5), c("a", "b", "c")),
+    col_types = cols_only(a = col_integer(), c = col_character())
+  )
+  expect_equal(names(result), c("a", "c"))
+  expect_equal(result$a, c(12L, 56L))
+  expect_equal(result$c, c("hello", "world"))
+})
