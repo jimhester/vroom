@@ -279,3 +279,105 @@ test_that("libvroom result equals standard vroom result", {
     expect_equal(libvroom_result, standard_result)
   })
 })
+
+test_that("libvroom handles col_skip in compact notation", {
+  test_libvroom(
+    "a,b,c\n1,2,3\n4,5,6\n",
+    delim = ",",
+    col_types = "i_d",
+    equals = tibble::tibble(a = c(1L, 4L), c = c(3, 6))
+  )
+})
+
+test_that("libvroom handles cols() with named columns", {
+  test_libvroom(
+    "a,b,c\n1,2.5,hello\n3,4.5,world\n",
+    delim = ",",
+    col_types = cols(a = col_integer(), b = col_double(), c = col_character()),
+    equals = tibble::tibble(
+      a = c(1L, 3L),
+      b = c(2.5, 4.5),
+      c = c("hello", "world")
+    )
+  )
+})
+
+test_that("libvroom handles cols() with partial specification", {
+  test_libvroom(
+    "a,b,c\n1,2.5,TRUE\n3,4.5,FALSE\n",
+    delim = ",",
+    col_types = cols(a = col_integer()),
+    equals = tibble::tibble(
+      a = c(1L, 3L),
+      b = c(2.5, 4.5),
+      c = c(TRUE, FALSE)
+    )
+  )
+})
+
+test_that("libvroom handles cols_only()", {
+  test_libvroom(
+    "a,b,c\n1,2.5,hello\n3,4.5,world\n",
+    delim = ",",
+    col_types = cols_only(a = col_integer(), c = col_character()),
+    equals = tibble::tibble(a = c(1L, 3L), c = c("hello", "world"))
+  )
+})
+
+test_that("libvroom handles col_types with .default", {
+  test_libvroom(
+    "a,b,c\n1,2,3\n4,5,6\n",
+    delim = ",",
+    col_types = list(.default = "i"),
+    equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+})
+
+test_that("libvroom handles col_number() via post-processing", {
+  test_libvroom(
+    "a\n\"1,234.56\"\n\"7,890.12\"\n",
+    delim = "\t",
+    col_types = cols(a = col_number()),
+    equals = tibble::tibble(a = c(1234.56, 7890.12))
+  )
+})
+
+test_that("libvroom handles col_factor() via post-processing", {
+  test_libvroom(
+    "a\napple\nbanana\napple\n",
+    delim = ",",
+    col_types = cols(a = col_factor(levels = c("apple", "banana"))),
+    equals = tibble::tibble(
+      a = factor(c("apple", "banana", "apple"), levels = c("apple", "banana"))
+    )
+  )
+})
+
+test_that("libvroom handles col_time() via post-processing", {
+  test_libvroom(
+    "a\n10:01:01\n12:30:00\n",
+    delim = ",",
+    col_types = cols(a = col_time()),
+    equals = tibble::tibble(a = hms::hms(c(36061, 45000)))
+  )
+})
+
+test_that("libvroom handles col_date() with custom format via post-processing", {
+  test_libvroom(
+    "a\n01/20/2023\n06/15/2024\n",
+    delim = ",",
+    col_types = cols(a = col_date(format = "%m/%d/%Y")),
+    equals = tibble::tibble(a = as.Date(c("2023-01-20", "2024-06-15")))
+  )
+})
+
+test_that("libvroom handles col_big_integer() via post-processing", {
+  test_libvroom(
+    "a\n1234567890123\n9876543210987\n",
+    delim = ",",
+    col_types = cols(a = col_big_integer()),
+    equals = tibble::tibble(
+      a = bit64::as.integer64(c("1234567890123", "9876543210987"))
+    )
+  )
+})

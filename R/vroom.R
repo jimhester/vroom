@@ -300,6 +300,51 @@ vroom <- function(
       col_type_names = col_type_names
     )
 
+    # Handle .default expansion: if spec has a non-guess/non-skip default
+    # and columns were not fully specified, expand to all columns
+    if (
+      !is.null(resolved_spec) &&
+        length(resolved_spec$cols) == 0 &&
+        !inherits(resolved_spec$default, "collector_guess") &&
+        !inherits(resolved_spec$default, "collector_skip")
+    ) {
+      n_cols <- ncol(out)
+      resolved_spec$cols <- rep(list(resolved_spec$default), n_cols)
+      names(resolved_spec$cols) <- names(out)
+      col_types_int <- col_types_to_libvroom(resolved_spec)
+      col_type_names <- names(resolved_spec$cols)
+    }
+
+    # For cols_only(), drop columns not in the spec
+    if (
+      !is.null(resolved_spec) &&
+        inherits(resolved_spec$default, "collector_skip") &&
+        length(col_type_names) > 0
+    ) {
+      keep_cols <- names(out) %in% col_type_names
+      out <- out[, keep_cols, drop = FALSE]
+    }
+
+    # Drop skipped columns from output (compact notation like "i_d")
+    if (length(col_types_int) > 0 && length(col_type_names) == 0) {
+      skip_mask <- col_types_int == -1L
+      if (any(skip_mask)) {
+        keep <- !skip_mask[seq_len(min(length(skip_mask), ncol(out)))]
+        if (length(keep) < ncol(out)) {
+          keep <- c(keep, rep(TRUE, ncol(out) - length(keep)))
+        }
+        out <- out[, keep, drop = FALSE]
+      }
+    }
+
+    # Apply R-side post-processing for types libvroom parsed as STRING
+    out <- apply_col_postprocessing(
+      out,
+      resolved_spec,
+      col_types_int,
+      col_type_names
+    )
+
     out <- tibble::as_tibble(out, .name_repair = .name_repair)
 
     # Apply column selection using names directly (no spec attribute)
@@ -526,6 +571,88 @@ col_types_to_libvroom <- function(spec) {
       )
     },
     integer(1)
+  )
+}
+
+# Apply R-side type coercion for types libvroom parsed as STRING
+apply_col_postprocessing <- function(out, spec, col_types_int, col_type_names) {
+  if (is.null(spec)) {
+    return(out)
+  }
+
+  out_names <- names(out)
+
+  if (length(col_type_names) > 0) {
+    # Named spec: match by name
+    for (i in seq_along(spec$cols)) {
+      col_name <- names(spec$cols)[[i]]
+      out_idx <- match(col_name, out_names)
+      if (is.na(out_idx)) {
+        next
+      }
+      type_int <- col_types_int[[i]]
+      if (type_int != 5L) {
+        next
+      }
+
+      collector <- spec$cols[[i]]
+      if (inherits(collector, "collector_character")) {
+        next
+      }
+
+      out[[out_idx]] <- apply_collector(out[[out_idx]], collector)
+    }
+  } else {
+    # Positional spec: match by position
+    out_col <- 0L
+    for (i in seq_along(spec$cols)) {
+      type_int <- col_types_int[[i]]
+      if (type_int == -1L) {
+        next
+      }
+      out_col <- out_col + 1L
+      if (out_col > ncol(out)) {
+        next
+      }
+      if (type_int != 5L) {
+        next
+      }
+
+      collector <- spec$cols[[i]]
+      if (inherits(collector, "collector_character")) {
+        next
+      }
+
+      out[[out_col]] <- apply_collector(out[[out_col]], collector)
+    }
+  }
+  out
+}
+
+apply_collector <- function(x, collector) {
+  cls <- class(collector)[[1]]
+  switch(
+    cls,
+    collector_number = {
+      x <- gsub("[^0-9.eE+-]", "", x)
+      as.double(x)
+    },
+    collector_big_integer = {
+      bit64::as.integer64(x)
+    },
+    collector_factor = {
+      factor(x, levels = collector$levels, ordered = collector$ordered)
+    },
+    collector_time = {
+      hms::parse_hms(x)
+    },
+    collector_date = {
+      as.Date(x, format = collector$format)
+    },
+    collector_datetime = {
+      as.POSIXct(x, format = collector$format, tz = "UTC")
+    },
+    x
   )
 }
 
