@@ -433,11 +433,6 @@ can_use_libvroom <- function(
   locale,
   comment = ""
 ) {
-  # Must have an explicit delimiter (libvroom doesn't auto-detect)
-  if (is.null(delim)) {
-    return(FALSE)
-  }
-
   if (length(file) != 1) {
     return(FALSE)
   }

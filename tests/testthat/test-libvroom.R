@@ -416,3 +416,43 @@ test_that("libvroom handles comment character", {
     equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
   )
 })
+
+test_that("libvroom auto-detects delimiter", {
+  # CSV auto-detection
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+
+  out_con <- file(tf, "wb", encoding = "UTF-8")
+  writeBin(charToRaw("a,b,c\n1,2,3\n4,5,6\n"), out_con)
+  close(out_con)
+
+  result <- vroom(
+    tf,
+    delim = NULL,
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+  expect_equal(
+    result,
+    tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+
+  # TSV auto-detection
+  tf2 <- tempfile(fileext = ".tsv")
+  on.exit(unlink(tf2), add = TRUE)
+
+  out_con2 <- file(tf2, "wb", encoding = "UTF-8")
+  writeBin(charToRaw("a\tb\tc\n1\t2\t3\n4\t5\t6\n"), out_con2)
+  close(out_con2)
+
+  result2 <- vroom(
+    tf2,
+    delim = NULL,
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+  expect_equal(
+    result2,
+    tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+})
