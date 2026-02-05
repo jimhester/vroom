@@ -265,6 +265,20 @@ vroom <- function(
     }
 
     na_str <- paste(na, collapse = ",")
+
+    # Resolve col_types for libvroom
+    col_types_int <- integer(0)
+    col_type_names <- character(0)
+    resolved_spec <- NULL
+    if (!is.null(col_types) && !identical(col_types, list())) {
+      resolved_spec <- as.col_spec(col_types)
+      col_types_int <- col_types_to_libvroom(resolved_spec)
+      spec_names <- names(resolved_spec$cols)
+      if (!is.null(spec_names) && !all(spec_names == "")) {
+        col_type_names <- spec_names
+      }
+    }
+
     out <- vroom_libvroom_(
       input = input,
       delim = delim %||% "",
@@ -281,7 +295,9 @@ vroom <- function(
         "chr" %in% altrep
       } else {
         isTRUE(altrep)
-      }
+      },
+      col_types = col_types_int,
+      col_type_names = col_type_names
     )
 
     out <- tibble::as_tibble(out, .name_repair = .name_repair)
@@ -433,12 +449,6 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # No explicit col_types (let libvroom infer)
-  # list() is equivalent to NULL — both mean "guess all"
-  if (!is.null(col_types) && !identical(col_types, list())) {
-    return(FALSE)
-  }
-
   # No id column (would need file path prepended)
   if (!is.null(id)) {
     return(FALSE)
@@ -468,6 +478,55 @@ can_use_libvroom <- function(
   }
 
   TRUE
+}
+
+# Map an R col_spec to a vector of libvroom DataType integers.
+#
+# Mapping (matches libvroom::DataType enum):
+#   0 = UNKNOWN (guess), 1 = BOOL, 2 = INT32, 3 = INT64
+#   4 = FLOAT64, 5 = STRING, 6 = DATE, 7 = TIMESTAMP, -1 = skip
+col_types_to_libvroom <- function(spec) {
+  vapply(
+    spec$cols,
+    function(collector) {
+      cls <- class(collector)[[1]]
+      switch(
+        cls,
+        collector_skip = -1L,
+        collector_guess = 0L,
+        collector_logical = 1L,
+        collector_integer = 2L,
+        collector_big_integer = 5L,
+        collector_double = 4L,
+        collector_character = 5L,
+        collector_number = 5L,
+        collector_time = 5L,
+        collector_factor = 5L,
+        collector_date = {
+          if (
+            identical(collector$format, "") ||
+              identical(collector$format, "%AD")
+          ) {
+            6L
+          } else {
+            5L
+          }
+        },
+        collector_datetime = {
+          if (
+            identical(collector$format, "") ||
+              identical(collector$format, "%AD")
+          ) {
+            7L
+          } else {
+            5L
+          }
+        },
+        5L
+      )
+    },
+    integer(1)
+  )
 }
 
 should_show_col_types <- function(has_col_types, show_col_types) {

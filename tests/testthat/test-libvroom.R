@@ -199,6 +199,44 @@ test_that("libvroom handles different column types", {
   )
 })
 
+test_that("libvroom handles explicit col_types with compact string notation", {
+  # Integer + double + character
+  test_libvroom(
+    "a,b,c\n1,2.5,hello\n3,4.5,world\n",
+    delim = ",",
+    col_types = "idc",
+    equals = tibble::tibble(
+      a = c(1L, 3L),
+      b = c(2.5, 4.5),
+      c = c("hello", "world")
+    )
+  )
+})
+
+test_that("libvroom handles logical col_type", {
+  test_libvroom(
+    "a,b\nTRUE,1\nFALSE,2\n",
+    delim = ",",
+    col_types = "li",
+    equals = tibble::tibble(a = c(TRUE, FALSE), b = c(1L, 2L))
+  )
+})
+
+test_that("libvroom handles date and datetime col_types", {
+  test_libvroom(
+    "a,b\n2023-01-20,2018-01-01T10:01:01\n2024-06-15,2019-06-15T12:30:00\n",
+    delim = ",",
+    col_types = "DT",
+    equals = tibble::tibble(
+      a = as.Date(c("2023-01-20", "2024-06-15")),
+      b = as.POSIXct(
+        c("2018-01-01 10:01:01", "2019-06-15 12:30:00"),
+        tz = "UTC"
+      )
+    )
+  )
+})
+
 test_that("libvroom handles Windows line endings (CRLF)", {
   test_libvroom(
     "a,b\r\n1,2\r\n3,4\r\n",
