@@ -77,3 +77,18 @@ test_that("as.col_spec() errors for unhandled input type", {
 test_that("as.col_spec() errors for unrecognized single-letter spec", {
   expect_snapshot(vroom(I("whatever"), col_types = "dz"), error = TRUE)
 })
+
+test_that("spec_from_df builds col_spec from data frame column types", {
+  df <- tibble::tibble(
+    chr_col = "hello",
+    int_col = 1L,
+    dbl_col = 1.5,
+    lgl_col = TRUE
+  )
+  s <- spec_from_df(df)
+  expect_s3_class(s, "col_spec")
+  expect_equal(s$cols$chr_col, col_character())
+  expect_equal(s$cols$int_col, col_integer())
+  expect_equal(s$cols$dbl_col, col_double())
+  expect_equal(s$cols$lgl_col, col_logical())
+})

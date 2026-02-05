@@ -734,6 +734,28 @@ show_col_types <- function(x, locale) {
   })
 }
 
+spec_from_df <- function(df) {
+  col_list <- lapply(df, function(col) {
+    cls <- class(col)[[1]]
+    switch(
+      cls,
+      character = col_character(),
+      integer = col_integer(),
+      numeric = col_double(),
+      logical = col_logical(),
+      Date = col_date(),
+      POSIXct = col_datetime(),
+      hms = col_time(),
+      difftime = col_time(),
+      factor = col_factor(),
+      integer64 = col_big_integer(),
+      col_character()
+    )
+  })
+  names(col_list) <- names(df)
+  col_spec(col_list, default = col_guess(), delim = NULL)
+}
+
 cli_block <- function(expr, class = NULL, type = rlang::inform) {
   msg <- ""
   withCallingHandlers(
