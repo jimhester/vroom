@@ -251,7 +251,7 @@
           auto* str_col = dynamic_cast<libvroom::ArrowStringColumnBuilder*>(
               columns[i].get());
           if (str_col) {
-            columns[i].release();
+            (void)columns[i].release();
             string_accumulators[i].push_back(
                 std::shared_ptr<libvroom::ArrowStringColumnBuilder>(str_col));
           }
