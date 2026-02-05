@@ -465,3 +465,12 @@ test_that("libvroom handles skip parameter", {
     equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
   )
 })
+
+test_that("libvroom handles n_max parameter", {
+  test_libvroom(
+    "a,b,c\n1,2,3\n4,5,6\n7,8,9\n",
+    delim = ",",
+    n_max = 2,
+    equals = tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+})

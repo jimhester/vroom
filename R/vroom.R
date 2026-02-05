@@ -293,6 +293,11 @@ vroom <- function(
       col_type_names = col_type_names
     )
 
+    # Apply n_max row limit (R-side truncation)
+    if (!is.infinite(n_max) && n_max >= 0 && nrow(out) > n_max) {
+      out <- out[seq_len(n_max), , drop = FALSE]
+    }
+
     out <- filter_cols_only_and_skip(
       out,
       resolved_spec,
@@ -468,11 +473,6 @@ can_use_libvroom <- function(
 
   # No id column (would need file path prepended)
   if (!is.null(id)) {
-    return(FALSE)
-  }
-
-  # No row limits
-  if (!is.infinite(n_max) && n_max >= 0) {
     return(FALSE)
   }
 
