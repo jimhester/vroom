@@ -67,12 +67,12 @@ vroom(file)
 vroom(file, delim = ",")
 #> # A tibble: 32 × 12
 #>   model       mpg   cyl  disp    hp  drat    wt  qsec    vs    am  gear
-#>   <chr>     <dbl> <int> <dbl> <int> <dbl> <dbl> <dbl> <int> <int> <int>
+#>   <chr>     <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
 #> 1 Mazda RX4  21       6   160   110  3.9   2.62  16.5     0     1     4
 #> 2 Mazda RX…  21       6   160   110  3.9   2.88  17.0     0     1     4
 #> 3 Datsun 7…  22.8     4   108    93  3.85  2.32  18.6     1     1     4
 #> # ℹ 29 more rows
-#> # ℹ 1 more variable: carb <int>
+#> # ℹ 1 more variable: carb <dbl>
 ```
 
 ## Reading multiple files

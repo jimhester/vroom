@@ -38,14 +38,14 @@ vroom_str(mt)
 #> 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:
 #> $model:  altrep:true type:vroom::vroom_arrow_chr length:32   materialized:false
 #> $mpg:    altrep:false    type: double    length:32
-#> $cyl:    altrep:false    type: integer   length:32
+#> $cyl:    altrep:false    type: double    length:32
 #> $disp:   altrep:false    type: double    length:32
-#> $hp: altrep:false    type: integer   length:32
+#> $hp: altrep:false    type: double    length:32
 #> $drat:   altrep:false    type: double    length:32
 #> $wt: altrep:false    type: double    length:32
 #> $qsec:   altrep:false    type: double    length:32
-#> $vs: altrep:false    type: integer   length:32
-#> $am: altrep:false    type: integer   length:32
-#> $gear:   altrep:false    type: integer   length:32
-#> $carb:   altrep:false    type: integer   length:32
+#> $vs: altrep:false    type: double    length:32
+#> $am: altrep:false    type: double    length:32
+#> $gear:   altrep:false    type: double    length:32
+#> $carb:   altrep:false    type: double    length:32
 ```

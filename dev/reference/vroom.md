@@ -28,7 +28,7 @@ vroom(
   progress = vroom_progress(),
   show_col_types = NULL,
   .name_repair = "unique",
-  use_libvroom = FALSE
+  use_libvroom = NULL
 )
 ```
 
@@ -259,9 +259,10 @@ vroom(
 
 - use_libvroom:
 
-  Use the experimental libvroom SIMD-accelerated CSV parsing backend.
-  This backend can be significantly faster for large files but may not
-  support all features. Defaults to `FALSE`.
+  Control use of the experimental libvroom SIMD-accelerated CSV parsing
+  backend. `NULL` (default) auto-detects whether the backend can handle
+  the request, `TRUE` prefers libvroom, and `FALSE` forces the legacy
+  parser.
 
 ## Examples
 
@@ -444,9 +445,9 @@ vroom(I("x,y\n1,2\n3,4\n"), col_types = list(col_double(), col_character()))
 # csv
 vroom(I("a,b\n1.0,2.0\n"), delim = ",")
 #> # A tibble: 1 × 2
-#>   a     b    
-#>   <chr> <chr>
-#> 1 1.0   2.0  
+#>       a     b
+#>   <dbl> <dbl>
+#> 1     1     2
 # tsv
 vroom(I("a\tb\n1.0\t2.0\n"))
 #> Rows: 1 Columns: 2
@@ -463,9 +464,9 @@ vroom(I("a\tb\n1.0\t2.0\n"))
 # Other delimiters
 vroom(I("a|b\n1.0|2.0\n"), delim = "|")
 #> # A tibble: 1 × 2
-#>   a     b    
-#>   <chr> <chr>
-#> 1 1.0   2.0  
+#>       a     b
+#>   <dbl> <dbl>
+#> 1     1     2
 
 # Read datasets across multiple files ---------------------------------------
 mtcars_by_cyl <- vroom_example(vroom_examples("mtcars-"))
