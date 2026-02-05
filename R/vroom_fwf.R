@@ -102,6 +102,11 @@ vroom_fwf <- function(
   use_libvroom <- can_use_libvroom_fwf(file, col_types, locale)
   if (use_libvroom) {
     input <- connection_or_filepath(file[[1]])
+    # Non-ASCII paths need to go through R connection for proper encoding
+    # handling (libvroom expects UTF-8 paths but non-UTF-8 locales mangle them)
+    if (is.character(input) && !is_ascii_path(input)) {
+      input <- file(input)
+    }
     if (inherits(input, "connection")) {
       input <- read_connection_raw(input)
       if (length(input) == 0L) {
