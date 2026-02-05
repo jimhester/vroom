@@ -239,7 +239,6 @@ vroom <- function(
     use_libvroom <- can_use_libvroom(
       file,
       delim,
-      col_names,
       col_types,
       id,
       n_max,
@@ -263,6 +262,19 @@ vroom <- function(
     col_types_int <- ct$col_types_int
     col_type_names <- ct$col_type_names
     resolved_spec <- ct$resolved_spec
+
+    # When col_names is not TRUE, libvroom uses V1, V2, ... internally.
+    # Translate user-provided col_type_names to match libvroom's V-names.
+    libvroom_col_type_names <- col_type_names
+    if (
+      !isTRUE(col_names) &&
+        is.character(col_names) &&
+        length(col_type_names) > 0
+    ) {
+      r_to_v <- setNames(paste0("V", seq_along(col_names)), col_names)
+      matched <- r_to_v[col_type_names]
+      libvroom_col_type_names[!is.na(matched)] <- matched[!is.na(matched)]
+    }
 
     # Convert .default to libvroom int for columns without explicit types
     default_col_type <- 0L
@@ -301,9 +313,16 @@ vroom <- function(
           isTRUE(altrep)
         },
         col_types = col_types_int,
-        col_type_names = col_type_names,
+        col_type_names = libvroom_col_type_names,
         default_col_type = default_col_type
       )
+
+      # Apply col_names renaming for non-TRUE col_names
+      if (is.character(col_names)) {
+        names(one) <- make_names(col_names, ncol(one))
+      } else if (isFALSE(col_names)) {
+        names(one) <- make_names(character(), ncol(one))
+      }
 
       one <- filter_cols_only_and_skip(
         one,
@@ -508,7 +527,6 @@ vroom <- function(
 can_use_libvroom <- function(
   file,
   delim,
-  col_names,
   col_types,
   id,
   n_max,
@@ -542,12 +560,10 @@ can_use_libvroom <- function(
       }
     } else if (!inherits(input, "connection")) {
       return(FALSE)
+    } else if (inherits(input, "rawConnection")) {
+      # Raw byte inputs can contain arbitrary encodings
+      return(FALSE)
     }
-  }
-
-  # col_names must be TRUE (libvroom handles headers internally)
-  if (!isTRUE(col_names)) {
-    return(FALSE)
   }
 
   # Only allow col_types that libvroom handles natively
@@ -573,8 +589,15 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # Must use UTF-8 or default encoding
-  if (!is_ascii_compatible(locale$encoding)) {
+  # Must use default locale settings (libvroom doesn't handle transcoding,
+  # custom decimal marks, or custom date formats)
+  if (!identical(locale$encoding, "UTF-8")) {
+    return(FALSE)
+  }
+  if (!identical(locale$decimal_mark, ".")) {
+    return(FALSE)
+  }
+  if (!identical(locale$date_format, "%AD")) {
     return(FALSE)
   }
 
