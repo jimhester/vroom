@@ -101,7 +101,7 @@ vroom_fwf <- function(
 
   use_libvroom <- can_use_libvroom_fwf(file, col_types, locale)
   if (use_libvroom) {
-    input <- file[[1]]
+    input <- connection_or_filepath(file[[1]])
     if (inherits(input, "connection")) {
       input <- read_connection_raw(input)
       if (length(input) == 0L) {
@@ -337,26 +337,6 @@ can_use_libvroom_fwf <- function(file, col_types, locale) {
   if (length(file) != 1) {
     return(FALSE)
   }
-
-  input <- file[[1]]
-  if (is.character(input)) {
-    if (grepl("^(https?|ftp|ftps)://", input)) {
-      return(FALSE)
-    }
-    if (!file.exists(input)) {
-      return(FALSE)
-    }
-    ext <- tolower(tools::file_ext(input))
-    if (ext %in% c("gz", "bz2", "xz", "zip", "zst")) {
-      return(FALSE)
-    }
-    if (file.size(input) == 0) {
-      return(FALSE)
-    }
-  } else if (!inherits(input, "connection")) {
-    return(FALSE)
-  }
-
   if (!is.null(col_types)) {
     return(FALSE)
   }
