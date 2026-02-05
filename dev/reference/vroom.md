@@ -444,6 +444,13 @@ vroom(I("x,y\n1,2\n3,4\n"), col_types = list(col_double(), col_character()))
 # File types ----------------------------------------------------------------
 # csv
 vroom(I("a,b\n1.0,2.0\n"), delim = ",")
+#> Rows: 1 Columns: 2
+#> ── Column specification ───────────────────────────────────────────────
+#> Delimiter: ","
+#> dbl (2): a, b
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 1 × 2
 #>       a     b
 #>   <dbl> <dbl>
@@ -463,6 +470,13 @@ vroom(I("a\tb\n1.0\t2.0\n"))
 #> 1     1     2
 # Other delimiters
 vroom(I("a|b\n1.0|2.0\n"), delim = "|")
+#> Rows: 1 Columns: 2
+#> ── Column specification ───────────────────────────────────────────────
+#> Delimiter: "|"
+#> dbl (2): a, b
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 1 × 2
 #>       a     b
 #>   <dbl> <dbl>

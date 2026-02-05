@@ -34,6 +34,14 @@ vroom_str(mtcars)
 #> $carb:   altrep:false    type: double    length:32
 
 mt <- vroom(vroom_example("mtcars.csv"), ",", altrep = c("chr", "dbl"))
+#> Rows: 32 Columns: 12
+#> ── Column specification ───────────────────────────────────────────────
+#> Delimiter: ","
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 vroom_str(mt)
 #> 'spec_tbl_df', 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:
 #> $model:  altrep:true type:vroom::vroom_arrow_chr length:32   materialized:false

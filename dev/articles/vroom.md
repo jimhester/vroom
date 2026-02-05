@@ -65,6 +65,14 @@ vroom(file)
 # You can also specify it explicitly, which is (slightly) faster, and safer if
 # you know how the file is delimited.
 vroom(file, delim = ",")
+#> Rows: 32 Columns: 12
+#> ── Column specification ───────────────────────────────────────────────
+#> Delimiter: ","
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 32 × 12
 #>   model       mpg   cyl  disp    hp  drat    wt  qsec    vs    am  gear
 #>   <chr>     <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
@@ -378,6 +386,13 @@ cat(readLines(fwf_sample))
 
 ``` r
 vroom_fwf(fwf_sample, fwf_empty(fwf_sample, col_names = c("first", "last", "state", "ssn")))
+#> Rows: 3 Columns: 4
+#> ── Column specification ───────────────────────────────────────────────
+#> 
+#> chr (4): first, last, state, ssn
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 4
 #>   first last     state ssn         
 #>   <chr> <chr>    <chr> <chr>       
@@ -391,6 +406,13 @@ vroom_fwf(fwf_sample, fwf_empty(fwf_sample, col_names = c("first", "last", "stat
 
 ``` r
 vroom_fwf(fwf_sample, fwf_widths(c(20, 10, 12), c("name", "state", "ssn")))
+#> Rows: 3 Columns: 3
+#> ── Column specification ───────────────────────────────────────────────
+#> 
+#> chr (3): name, state, ssn
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 3
 #>   name          state ssn         
 #>   <chr>         <chr> <chr>       
@@ -404,6 +426,13 @@ vroom_fwf(fwf_sample, fwf_widths(c(20, 10, 12), c("name", "state", "ssn")))
 
 ``` r
 vroom_fwf(fwf_sample, fwf_positions(c(1, 30), c(20, 42), c("name", "ssn")))
+#> Rows: 3 Columns: 2
+#> ── Column specification ───────────────────────────────────────────────
+#> 
+#> chr (2): name, ssn
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 2
 #>   name          ssn         
 #>   <chr>         <chr>       
@@ -417,6 +446,13 @@ vroom_fwf(fwf_sample, fwf_positions(c(1, 30), c(20, 42), c("name", "ssn")))
 
 ``` r
 vroom_fwf(fwf_sample, fwf_cols(name = 20, state = 10, ssn = 12))
+#> Rows: 3 Columns: 3
+#> ── Column specification ───────────────────────────────────────────────
+#> 
+#> chr (3): name, state, ssn
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 3
 #>   name          state ssn         
 #>   <chr>         <chr> <chr>       
@@ -430,6 +466,13 @@ vroom_fwf(fwf_sample, fwf_cols(name = 20, state = 10, ssn = 12))
 
 ``` r
 vroom_fwf(fwf_sample, fwf_cols(name = c(1, 20), ssn = c(30, 42)))
+#> Rows: 3 Columns: 2
+#> ── Column specification ───────────────────────────────────────────────
+#> 
+#> chr (2): name, ssn
+#> 
+#> ℹ Use `spec()` to retrieve the full column specification for this data.
+#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 3 × 2
 #>   name          ssn         
 #>   <chr>         <chr>       
