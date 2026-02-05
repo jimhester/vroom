@@ -116,6 +116,7 @@ public:
   const EncodingResult& encoding() const;
 
 private:
+  Result<bool> initialize_data();
   Result<ParsedChunks> read_all_serial();
   struct Impl;
   std::unique_ptr<Impl> impl_;

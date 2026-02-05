@@ -124,12 +124,7 @@ vroom_fwf <- function(
       na_values = na_str,
       skip = as.integer(skip),
       n_max = n_max_int,
-      num_threads = as.integer(num_threads),
-      use_altrep = if (is.character(altrep)) {
-        "chr" %in% altrep
-      } else {
-        isTRUE(altrep)
-      }
+      num_threads = as.integer(num_threads)
     )
     out <- tibble::as_tibble(out, .name_repair = .name_repair)
     if (!is.null(id)) {

@@ -233,19 +233,21 @@ static std::vector<DataType> infer_fwf_types(
   size_t rows_sampled = 0;
 
   while (offset < size && rows_sampled < max_rows) {
-    // Skip empty lines and comment lines
+    // Skip empty lines (if configured) and comment lines
     while (offset < size) {
       char c = data[offset];
-      if (c == '\n') {
-        offset++;
-        continue;
-      }
-      if (c == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') {
+      if (options.skip_empty_rows) {
+        if (c == '\n') {
           offset++;
+          continue;
         }
-        continue;
+        if (c == '\r') {
+          offset++;
+          if (offset < size && data[offset] == '\n') {
+            offset++;
+          }
+          continue;
+        }
       }
       if (options.comment != '\0' && c == options.comment) {
         while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
@@ -356,19 +358,9 @@ FwfReader::FwfReader(const FwfOptions& options) : impl_(std::make_unique<Impl>(o
 
 FwfReader::~FwfReader() = default;
 
-Result<bool> FwfReader::open(const std::string& path) {
-  auto result = impl_->source.open(path);
-  if (!result) {
-    return result;
-  }
-
-  impl_->data_ptr = impl_->source.data();
-  impl_->data_size = impl_->source.size();
-
-  if (impl_->data_size == 0) {
-    return Result<bool>::failure("Empty file");
-  }
-
+// Shared initialization: encoding detection, comment/line skipping, schema building, type inference.
+// Called after data_ptr/data_size are set by open() or open_from_buffer().
+Result<bool> FwfReader::initialize_data() {
   // Detect encoding and transcode if needed
   {
     const auto* raw = reinterpret_cast<const uint8_t*>(impl_->data_ptr);
@@ -412,102 +404,7 @@ Result<bool> FwfReader::open(const std::string& path) {
     data = impl_->data_ptr;
     size = impl_->data_size;
     if (size == 0) {
-      return Result<bool>::failure("File contains only comment lines");
-    }
-  }
-
-  // Skip N data lines (user-specified skip)
-  if (impl_->options.skip > 0) {
-    size_t line_skip = skip_n_lines(data, size, impl_->options.skip);
-    impl_->data_ptr += line_skip;
-    impl_->data_size -= line_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-  }
-
-  impl_->data_start_offset = 0; // Data starts at beginning (after comment/line skip)
-
-  // Build schema from col_names
-  size_t num_cols = impl_->options.col_starts.size();
-  for (size_t i = 0; i < num_cols; ++i) {
-    ColumnSchema col;
-    if (i < impl_->options.col_names.size()) {
-      col.name = impl_->options.col_names[i];
-    } else {
-      col.name = "X" + std::to_string(i + 1);
-    }
-    col.index = i;
-    col.type = DataType::STRING;
-    impl_->schema.push_back(std::move(col));
-  }
-
-  // Type inference on sample rows (from data after skip)
-  if (!impl_->schema.empty()) {
-    auto inferred_types = infer_fwf_types(data, size, impl_->options, impl_->options.sample_rows);
-    for (size_t i = 0; i < impl_->schema.size() && i < inferred_types.size(); ++i) {
-      impl_->schema[i].type = inferred_types[i];
-    }
-  }
-
-  impl_->row_count = 0;
-
-  return Result<bool>::success(true);
-}
-
-Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
-  impl_->owned_buffer = std::move(buffer);
-  impl_->data_ptr = reinterpret_cast<const char*>(impl_->owned_buffer.data());
-  impl_->data_size = impl_->owned_buffer.size();
-
-  if (impl_->data_size == 0) {
-    return Result<bool>::failure("Empty buffer");
-  }
-
-  // Detect encoding and transcode if needed
-  {
-    const auto* raw = reinterpret_cast<const uint8_t*>(impl_->data_ptr);
-    size_t raw_size = impl_->data_size;
-
-    if (impl_->options.encoding.has_value()) {
-      impl_->detected_encoding.encoding = *impl_->options.encoding;
-      auto bom_result = detect_encoding(raw, raw_size);
-      if (bom_result.encoding == *impl_->options.encoding ||
-          (*impl_->options.encoding == CharEncoding::UTF8 &&
-           bom_result.encoding == CharEncoding::UTF8_BOM)) {
-        impl_->detected_encoding.bom_length = bom_result.bom_length;
-      }
-      impl_->detected_encoding.confidence = 1.0;
-      impl_->detected_encoding.needs_transcoding =
-          (*impl_->options.encoding != CharEncoding::UTF8 &&
-           *impl_->options.encoding != CharEncoding::UTF8_BOM);
-    } else {
-      impl_->detected_encoding = detect_encoding(raw, raw_size);
-    }
-
-    if (impl_->detected_encoding.needs_transcoding) {
-      AlignedBuffer transcoded = transcode_to_utf8(raw, raw_size, impl_->detected_encoding.encoding,
-                                                    impl_->detected_encoding.bom_length);
-      impl_->owned_buffer = std::move(transcoded);
-      impl_->data_ptr = reinterpret_cast<const char*>(impl_->owned_buffer.data());
-      impl_->data_size = impl_->owned_buffer.size();
-    } else if (impl_->detected_encoding.bom_length > 0) {
-      impl_->data_ptr += impl_->detected_encoding.bom_length;
-      impl_->data_size -= impl_->detected_encoding.bom_length;
-    }
-  }
-
-  const char* data = impl_->data_ptr;
-  size_t size = impl_->data_size;
-
-  // Skip leading comment lines
-  size_t comment_skip = skip_leading_comment_lines_fwf(data, size, impl_->options.comment);
-  if (comment_skip > 0) {
-    impl_->data_ptr += comment_skip;
-    impl_->data_size -= comment_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-    if (size == 0) {
-      return Result<bool>::failure("Buffer contains only comment lines");
+      return Result<bool>::failure("Data contains only comment lines");
     }
   }
 
@@ -547,6 +444,34 @@ Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
   impl_->row_count = 0;
 
   return Result<bool>::success(true);
+}
+
+Result<bool> FwfReader::open(const std::string& path) {
+  auto result = impl_->source.open(path);
+  if (!result) {
+    return result;
+  }
+
+  impl_->data_ptr = impl_->source.data();
+  impl_->data_size = impl_->source.size();
+
+  if (impl_->data_size == 0) {
+    return Result<bool>::failure("Empty file");
+  }
+
+  return initialize_data();
+}
+
+Result<bool> FwfReader::open_from_buffer(AlignedBuffer buffer) {
+  impl_->owned_buffer = std::move(buffer);
+  impl_->data_ptr = reinterpret_cast<const char*>(impl_->owned_buffer.data());
+  impl_->data_size = impl_->owned_buffer.size();
+
+  if (impl_->data_size == 0) {
+    return Result<bool>::failure("Empty buffer");
+  }
+
+  return initialize_data();
 }
 
 const std::vector<ColumnSchema>& FwfReader::schema() const {

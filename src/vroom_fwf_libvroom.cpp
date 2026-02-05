@@ -17,8 +17,7 @@
     const std::string& na_values,
     int skip,
     int n_max,
-    int num_threads,
-    bool use_altrep) {
+    int num_threads) {
 
   libvroom::FwfOptions opts;
   opts.col_starts = col_starts;
