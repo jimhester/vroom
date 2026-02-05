@@ -252,6 +252,8 @@ each line is divided up into fields.
 
 - [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md) : Read
   a delimited file into a tibble
+- [`vroom_arrow()`](https://vroom.tidyverse.org/dev/reference/vroom_arrow.md)
+  : Read a delimited file into an Arrow Table
 - [`vroom_fwf()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
   [`fwf_empty()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
   [`fwf_widths()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)

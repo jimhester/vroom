@@ -65,22 +65,14 @@ vroom(file)
 # You can also specify it explicitly, which is (slightly) faster, and safer if
 # you know how the file is delimited.
 vroom(file, delim = ",")
-#> Rows: 32 Columns: 12
-#> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
-#> chr  (1): model
-#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
-#> 
-#> ℹ Use `spec()` to retrieve the full column specification for this data.
-#> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 #> # A tibble: 32 × 12
 #>   model       mpg   cyl  disp    hp  drat    wt  qsec    vs    am  gear
-#>   <chr>     <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
+#>   <chr>     <dbl> <int> <dbl> <int> <dbl> <dbl> <dbl> <int> <int> <int>
 #> 1 Mazda RX4  21       6   160   110  3.9   2.62  16.5     0     1     4
 #> 2 Mazda RX…  21       6   160   110  3.9   2.88  17.0     0     1     4
 #> 3 Datsun 7…  22.8     4   108    93  3.85  2.32  18.6     1     1     4
 #> # ℹ 29 more rows
-#> # ℹ 1 more variable: carb <dbl>
+#> # ℹ 1 more variable: carb <int>
 ```
 
 ## Reading multiple files
@@ -244,7 +236,8 @@ vroom(file)
 #> # ℹ 1 more variable: carb <dbl>
 ```
 
-It can even read compressed files from the internet.
+It can even read gzipped files from the internet (although not the other
+compressed formats).
 
 ``` r
 file <- "https://raw.githubusercontent.com/tidyverse/vroom/main/inst/extdata/mtcars.csv.gz"

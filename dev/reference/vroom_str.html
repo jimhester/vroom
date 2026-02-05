@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">vroom</a>
 
-    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="In-development version">1.7.0.9000</small>
+    <small class="nav-text text-danger me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="In-development version">1.6.7.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -80,28 +80,20 @@
 <span class="r-out co"><span class="r-pr">#&gt;</span> $carb:	altrep:false	type: double	length:32</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">mt</span> <span class="op">&lt;-</span> <span class="fu"><a href="vroom.html">vroom</a></span><span class="op">(</span><span class="fu"><a href="vroom_example.html">vroom_example</a></span><span class="op">(</span><span class="st">"mtcars.csv"</span><span class="op">)</span>, <span class="st">","</span>, altrep <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"chr"</span>, <span class="st">"dbl"</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">12</span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="font-weight: bold;">Delimiter:</span> ","</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #BB0000;">chr</span>  (1): model</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Use `spec()` to retrieve the full column specification for this data.</span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Specify the column types or set `show_col_types = FALSE` to quiet this message.</span>
 <span class="r-in"><span><span class="fu">vroom_str</span><span class="op">(</span><span class="va">mt</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 'spec_tbl_df', 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $model:	altrep:true	type:vroom::vroom_chr	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $mpg:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $cyl:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $disp:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $hp:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $drat:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $wt:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $qsec:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $vs:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $am:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $gear:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $carb:	altrep:true	type:vroom::vroom_dbl	length:32	materialized:false</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 'tbl_df', 'tbl', and 'data.frame': 32 obs., 12 vars.:</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $model:	altrep:true	type:vroom::vroom_arrow_chr	length:32	materialized:false</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $mpg:	altrep:false	type: double	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $cyl:	altrep:false	type: integer	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $disp:	altrep:false	type: double	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $hp:	altrep:false	type: integer	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $drat:	altrep:false	type: double	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $wt:	altrep:false	type: double	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $qsec:	altrep:false	type: double	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $vs:	altrep:false	type: integer	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $am:	altrep:false	type: integer	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $gear:	altrep:false	type: integer	length:32</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> $carb:	altrep:false	type: integer	length:32</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

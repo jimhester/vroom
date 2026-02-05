@@ -2,10 +2,6 @@
 
 ## vroom (development version)
 
-## vroom 1.7.0
-
-CRAN release: 2026-01-27
-
 - [vroom.tidyverse.org](https://vroom.tidyverse.org/) is the new home of
   vroom’s website, catching up to the much earlier move (April 2022) of
   vroom’s GitHub repository from the r-lib organization to the
@@ -26,38 +22,6 @@ CRAN release: 2026-01-27
   `vroom_fwf(altrep_opts =)` and `vroom_lines(altrep_opts =)`
   ([\#575](https://github.com/tidyverse/vroom/issues/575)).
 
-- [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md) now
-  supports reading from a remote file that uses any of the supported
-  compression formats, by downloading to a temporary (compressed) file.
-  This is a new feature for `.bz2`, `.xz`, and `.zip` and fixes `.gz`
-  bugs arising from problematic behaviour of
-  [`base::gzcon()`](https://rdrr.io/r/base/gzcon.html)
-  ([\#400](https://github.com/tidyverse/vroom/issues/400),
-  [\#553](https://github.com/tidyverse/vroom/issues/553),
-  <https://github.com/tidyverse/readr/issues/1555>,
-  <https://github.com/tidyverse/readr/issues/1553>).
-
-- `mtcars.csv.tar.gz` and `mtcars-concatenated.csv.gz` are 2 new example
-  files that are handy internally, at least, for exercising code related
-  to reading compressed files.
-
-- vroom now offers to install the archive package if it’s needed to
-  complete the user’s request
-  (<https://github.com/tidyverse/readr/issues/1334>).
-
-- vroom takes the recommended approach for phasing out usage of the
-  non-API entry points `SETLENGTH`, `SET_TRUELENGTH`, and `ATTRIB`
-  ([\#582](https://github.com/tidyverse/vroom/issues/582),
-  [\#596](https://github.com/tidyverse/vroom/issues/596)).
-
-- Unclosed quotes (e.g., `a,b,"c` with no closing `"`) now trigger a
-  warning, instead of silent data truncation. The affected row is also
-  newly included in the returned data, which should facilitate
-  troubleshooting
-  ([\#484](https://github.com/tidyverse/vroom/issues/484),
-  <https://github.com/tidyverse/readr/issues/1539>,
-  <https://github.com/tidyverse/readr/issues/1491>).
-
 - Columns specified as having type “number” (requested via
   [`col_number()`](https://vroom.tidyverse.org/dev/reference/cols.md) or
   `"number"` or `'n'`) or “skip” (requested via
@@ -74,6 +38,10 @@ CRAN release: 2026-01-27
   now close and destroy (instead of leak) the connection in the case
   where opening the connection fails due to, e.g., a nonexistent URL
   ([\#488](https://github.com/tidyverse/vroom/issues/488)).
+
+- vroom takes the recommended approach for phasing out usage of the
+  non-API entry points `SETLENGTH` and `SET_TRUELENGTH`
+  ([\#582](https://github.com/tidyverse/vroom/issues/582)).
 
 - If there is insufficient space for the tempfile used when reading from
   a connection (affects delimited and fixed width parsing, from
