@@ -141,17 +141,7 @@ vroom_fwf <- function(
       )
     }
 
-    # Apply column selection using names directly (no spec attribute)
-    if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
-      all_names <- c(names(out), id)
-      if (inherits(col_select, "quosures")) {
-        vars <- tidyselect::vars_select(all_names, !!!col_select)
-      } else {
-        vars <- tidyselect::vars_select(all_names, !!col_select)
-      }
-      out <- out[vars]
-      names(out) <- names(vars)
-    }
+    out <- apply_libvroom_col_select(out, col_select, id)
 
     class(out) <- c("spec_tbl_df", class(out))
     return(out)

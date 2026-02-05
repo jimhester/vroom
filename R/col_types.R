@@ -431,6 +431,20 @@ vroom_select <- function(x, col_select, id) {
   x
 }
 
+apply_libvroom_col_select <- function(out, col_select, id = NULL) {
+  if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
+    all_names <- c(names(out), id)
+    if (inherits(col_select, "quosures")) {
+      vars <- tidyselect::vars_select(all_names, !!!col_select)
+    } else {
+      vars <- tidyselect::vars_select(all_names, !!col_select)
+    }
+    out <- out[vars]
+    names(out) <- names(vars)
+  }
+  out
+}
+
 col_types_standardise <- function(
   spec,
   num_cols,
