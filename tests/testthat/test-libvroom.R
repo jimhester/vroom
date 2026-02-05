@@ -381,3 +381,28 @@ test_that("vroom with use_libvroom=TRUE gracefully falls back for col_big_intege
     )
   )
 })
+
+test_that("libvroom spec reflects full file schema with col_select", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+
+  out_con <- file(tf, "wb", encoding = "UTF-8")
+  writeBin(charToRaw("a,b,c\n1,hello,3.5\n2,world,4.5\n"), out_con)
+  close(out_con)
+
+  result <- vroom(
+    tf,
+    delim = ",",
+    col_select = c(a, c),
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  # Output should only have selected columns
+  expect_equal(names(result), c("a", "c"))
+
+  # But spec should reflect ALL columns in the file
+  s <- spec(result)
+  expect_equal(length(s$cols), 3)
+  expect_true(all(c("a", "b", "c") %in% names(s$cols)))
+})

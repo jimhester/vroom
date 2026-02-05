@@ -333,7 +333,18 @@ vroom <- function(
 
     out <- tibble::as_tibble(out, .name_repair = .name_repair)
 
-    # Apply column selection using names directly (no spec attribute)
+    # Build and attach spec attribute BEFORE col_select so it reflects
+    # the full file schema, not just selected columns
+    all_col_names <- names(out)
+    attr(out, "spec") <- build_libvroom_spec(
+      out,
+      resolved_spec,
+      col_types_int,
+      all_col_names,
+      delim = delim %||% ""
+    )
+
+    # Apply column selection using names directly
     if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
       all_names <- c(names(out), id)
       if (inherits(col_select, "quosures")) {
@@ -344,16 +355,6 @@ vroom <- function(
       out <- out[vars]
       names(out) <- names(vars)
     }
-
-    # Build and attach spec attribute
-    all_col_names <- names(out)
-    attr(out, "spec") <- build_libvroom_spec(
-      out,
-      resolved_spec,
-      col_types_int,
-      all_col_names,
-      delim = delim %||% ""
-    )
 
     # Add empty problems attribute (libvroom doesn't track parse errors yet)
     attr(out, "problems") <- tibble::tibble(
@@ -634,7 +635,6 @@ can_libvroom_handle_col_types <- function(col_types) {
   }
   # Check .default too — if it's anything other than guess/skip, fall back.
   # We can't expand .default to all columns before the C++ call because we
-
   # don't know column count yet, so libvroom would use inferred types instead.
   if (!is.null(spec$default)) {
     cls <- class(spec$default)[[1]]
