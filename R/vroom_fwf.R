@@ -204,6 +204,24 @@ vroom_fwf <- function(
       names(out) <- names(vars)
     }
 
+    # Build and attach spec attribute
+    all_col_names <- as.character(col_positions$col_names)
+    attr(out, "spec") <- build_libvroom_spec(
+      out,
+      resolved_spec,
+      col_types_int,
+      all_col_names,
+      delim = ""
+    )
+
+    # Add empty problems attribute (libvroom doesn't track parse errors yet)
+    attr(out, "problems") <- tibble::tibble(
+      row = integer(),
+      col = integer(),
+      expected = character(),
+      actual = character()
+    )
+
     class(out) <- c("spec_tbl_df", class(out))
     return(out)
   }

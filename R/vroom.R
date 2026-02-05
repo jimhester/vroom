@@ -359,6 +359,26 @@ vroom <- function(
       names(out) <- names(vars)
     }
 
+    # Build and attach spec attribute
+    all_col_names <- names(out)
+    attr(out, "spec") <- build_libvroom_spec(
+      out,
+      resolved_spec,
+      col_types_int,
+      all_col_names,
+      delim = delim %||% ""
+    )
+
+    # Add empty problems attribute (libvroom doesn't track parse errors yet)
+    attr(out, "problems") <- tibble::tibble(
+      row = integer(),
+      col = integer(),
+      expected = character(),
+      actual = character()
+    )
+
+    class(out) <- c("spec_tbl_df", class(out))
+
     return(out)
   }
 
@@ -571,6 +591,66 @@ col_types_to_libvroom <- function(spec) {
       )
     },
     integer(1)
+  )
+}
+
+# Build a col_spec from libvroom output for the spec attribute.
+# If resolved_spec is provided, use it. Otherwise infer from R column types.
+build_libvroom_spec <- function(
+  out,
+  resolved_spec,
+  col_types_int,
+  all_col_names,
+  delim
+) {
+  if (!is.null(resolved_spec)) {
+    spec_out <- resolved_spec
+    if (length(all_col_names) > 0 && length(spec_out$cols) > 0) {
+      if (is.null(names(spec_out$cols)) || all(names(spec_out$cols) == "")) {
+        # Positional spec: assign column names from the file
+        if (length(spec_out$cols) <= length(all_col_names)) {
+          names(spec_out$cols) <- all_col_names[seq_along(spec_out$cols)]
+        }
+      } else {
+        # Named spec: fill in defaults for unspecified columns
+        for (nm in all_col_names) {
+          if (!(nm %in% names(spec_out$cols))) {
+            spec_out$cols[[nm]] <- spec_out$default
+          }
+        }
+        # Reorder to match file column order
+        spec_out$cols <- spec_out$cols[intersect(
+          all_col_names,
+          names(spec_out$cols)
+        )]
+      }
+    }
+    spec_out$delim <- delim
+    return(spec_out)
+  }
+
+  # No spec provided: build from R output types
+  spec_cols <- lapply(out, function(col) {
+    if (is.integer(col)) {
+      col_integer()
+    } else if (is.double(col)) {
+      if (inherits(col, "Date")) {
+        col_date()
+      } else if (inherits(col, "POSIXct")) {
+        col_datetime()
+      } else {
+        col_double()
+      }
+    } else if (is.logical(col)) {
+      col_logical()
+    } else {
+      col_character()
+    }
+  })
+  names(spec_cols) <- names(out)
+  structure(
+    list(cols = spec_cols, default = col_guess(), delim = delim),
+    class = "col_spec"
   )
 }
 
