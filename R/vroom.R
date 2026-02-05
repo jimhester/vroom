@@ -490,6 +490,9 @@ can_use_libvroom <- function(
     }
   } else if (!inherits(input, "connection")) {
     return(FALSE)
+  } else if (inherits(input, "rawConnection")) {
+    # Raw byte inputs can contain arbitrary encodings
+    return(FALSE)
   }
 
   # Only allow col_types that libvroom handles natively
@@ -520,8 +523,15 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # Must use UTF-8 or default encoding
-  if (!is_ascii_compatible(locale$encoding)) {
+  # Must use default locale settings (libvroom doesn't handle transcoding,
+  # custom decimal marks, or custom date formats)
+  if (!identical(locale$encoding, "UTF-8")) {
+    return(FALSE)
+  }
+  if (!identical(locale$decimal_mark, ".")) {
+    return(FALSE)
+  }
+  if (!identical(locale$date_format, "%AD")) {
     return(FALSE)
   }
 
