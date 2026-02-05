@@ -298,6 +298,15 @@ vroom <- function(
       names(out) <- names(vars)
     }
 
+    # Build col_spec from inferred types and attach as attribute
+    has_col_types <- !is.null(col_types) && !identical(col_types, list())
+    attr(out, "spec") <- spec_from_df(out)
+    class(out) <- c("spec_tbl_df", class(out))
+
+    if (should_show_col_types(has_col_types, show_col_types)) {
+      show_col_types(out, locale)
+    }
+
     return(out)
   }
 
