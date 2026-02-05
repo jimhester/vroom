@@ -421,12 +421,16 @@ vroom <- function(
 
     # Apply column selection using names directly
     if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
-      all_names <- c(names(out), if (is.null(id)) NULL else character(0))
-      # id column is already in names(out); just use them
       if (inherits(col_select, "quosures")) {
         vars <- tidyselect::vars_select(names(out), !!!col_select)
       } else {
         vars <- tidyselect::vars_select(names(out), !!col_select)
+      }
+      # Match legacy vroom_select(): auto-include the id column even
+      # when the user's col_select expression doesn't mention it.
+      if (!is.null(id) && !id %in% vars) {
+        names(id) <- id
+        vars <- c(id, vars)
       }
       out <- out[vars]
       names(out) <- names(vars)
