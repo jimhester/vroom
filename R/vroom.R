@@ -230,17 +230,6 @@ vroom <- function(
     return(tibble::tibble())
   }
 
-  if (isTRUE(escape_backslash)) {
-    lifecycle::deprecate_warn(
-      "1.7.0",
-      "vroom(escape_backslash)",
-      details = c(
-        "i" = "Backslash escaping is non-standard (RFC 4180 uses doubled quotes).",
-        "i" = "Use {.code escape_double = TRUE} (the default) instead."
-      )
-    )
-  }
-
   col_select <- vroom_enquo(enquo(col_select))
 
   # Use libvroom SIMD backend for single file paths with default settings
