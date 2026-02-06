@@ -22,8 +22,8 @@ struct CsvOptions {
   bool trim_ws = true;  // Trim leading/trailing whitespace from fields
   size_t skip = 0;      // Number of lines to skip at start of file (before header)
   std::string null_values = "NA,null,NULL,"; // Comma-separated
-  std::string true_values = "true,TRUE,True,yes,YES,Yes";
-  std::string false_values = "false,FALSE,False,no,NO,No";
+  std::string true_values = "true,TRUE,True,T,t,yes,YES,Yes";
+  std::string false_values = "false,FALSE,False,F,f,no,NO,No";
 
   // Locale options
   char decimal_mark = '.'; // Decimal separator for FLOAT64 parsing (default: '.')
@@ -61,8 +61,8 @@ struct FwfOptions {
   char comment = '\0';
   bool skip_empty_rows = true;
   std::string null_values = "NA,null,NULL,";
-  std::string true_values = "true,TRUE,True,yes,YES,Yes";
-  std::string false_values = "false,FALSE,False,no,NO,No";
+  std::string true_values = "true,TRUE,True,T,t,yes,YES,Yes";
+  std::string false_values = "false,FALSE,False,F,f,no,NO,No";
   size_t skip = 0;                    // Number of data lines to skip after comments
   int64_t max_rows = -1;             // Max rows to read (-1 = unlimited)
   size_t sample_rows = 1000;

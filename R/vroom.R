@@ -318,7 +318,8 @@ vroom <- function(
         col_type_names = libvroom_col_type_names,
         default_col_type = default_col_type,
         escape_backslash = escape_backslash,
-        decimal_mark = locale$decimal_mark
+        decimal_mark = locale$decimal_mark,
+        guess_max = if (is.infinite(guess_max)) -1L else as.integer(guess_max)
       ),
       error = function(e) {
         msg <- conditionMessage(e)

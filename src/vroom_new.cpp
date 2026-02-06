@@ -60,7 +60,8 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
     const cpp11::strings& col_type_names,
     int default_col_type,
     bool escape_backslash,
-    char decimal_mark) {
+    char decimal_mark,
+    int guess_max) {
 
   libvroom::CsvOptions opts;
   opts.decimal_mark = decimal_mark;
@@ -85,6 +86,11 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   opts.encoding = libvroom::CharEncoding::UTF8;
 
   opts.error_mode = libvroom::ErrorMode::PERMISSIVE;
+
+  if (guess_max > 0)
+    opts.sample_rows = static_cast<size_t>(guess_max);
+  else if (guess_max < 0)
+    opts.sample_rows = SIZE_MAX;
 
   libvroom::CsvReader reader(opts);
 
