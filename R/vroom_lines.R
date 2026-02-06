@@ -36,41 +36,49 @@ vroom_lines <- function(
 
   na_str <- paste(na, collapse = ",")
 
-  input <- file[[1]]
+  results <- list()
 
-  # Handle compressed/remote files via connections
-  if (is.character(input) && (is_url(input) || is_compressed_path(input))) {
-    input <- connection_or_filepath(input)
-  }
-  # Non-ASCII paths need R connection for proper encoding handling
-  if (is.character(input) && !is_ascii_path(input)) {
-    input <- file(input)
-  }
+  for (input in file) {
+    # Handle compressed/remote files via connections
+    if (is.character(input) && (is_url(input) || is_compressed_path(input))) {
+      input <- connection_or_filepath(input)
+    }
+    # Non-ASCII paths need R connection for proper encoding handling
+    if (is.character(input) && !is_ascii_path(input)) {
+      input <- file(input)
+    }
 
-  if (inherits(input, "connection")) {
-    input <- read_connection_raw(input)
-    if (length(input) == 0L) {
-      return(character())
+    if (inherits(input, "connection")) {
+      input <- read_connection_raw(input)
+      if (length(input) == 0L) {
+        next
+      }
+    }
+
+    # Handle empty files before calling C++
+    if (is.character(input) && file.exists(input) && file.size(input) == 0L) {
+      next
+    }
+
+    res <- vroom_lines_libvroom_(
+      input = input,
+      skip = as.integer(skip),
+      na_values = na_str,
+      skip_empty_rows = skip_empty_rows,
+      num_threads = as.integer(num_threads),
+      use_altrep = isTRUE(altrep)
+    )
+
+    if (length(res) > 0) {
+      results[[length(results) + 1L]] <- res
     }
   }
 
-  # Handle empty files before calling C++
-  if (is.character(input) && file.exists(input) && file.size(input) == 0L) {
+  if (length(results) == 0) {
     return(character())
   }
 
-  out <- vroom_lines_libvroom_(
-    input = input,
-    skip = as.integer(skip),
-    na_values = na_str,
-    skip_empty_rows = skip_empty_rows,
-    num_threads = as.integer(num_threads),
-    use_altrep = isTRUE(altrep)
-  )
-
-  if (length(out) == 0) {
-    return(character())
-  }
+  out <- if (length(results) == 1) results[[1]] else unlist(results)
 
   # Apply n_max row limit (R-side truncation)
   if (is.finite(n_max) && n_max >= 0 && length(out) > n_max) {
