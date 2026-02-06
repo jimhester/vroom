@@ -34,12 +34,17 @@ vroom_lines <- function(
     return(character())
   }
 
-  n_max_int <- if (is.infinite(n_max) || n_max < 0) -1L else as.integer(n_max)
+  has_limit <- is.finite(n_max) && n_max >= 0
+  rows_remaining <- if (has_limit) as.integer(n_max) else -1L
   na_str <- paste(na, collapse = ",")
 
   results <- list()
 
   for (input in file) {
+    if (has_limit && rows_remaining == 0L) {
+      break
+    }
+
     # Handle compressed/remote files via connections
     if (is.character(input) && (is_url(input) || is_compressed_path(input))) {
       input <- connection_or_filepath(input)
@@ -64,7 +69,7 @@ vroom_lines <- function(
     res <- vroom_lines_libvroom_(
       input = input,
       skip = as.integer(skip),
-      n_max = n_max_int,
+      n_max = rows_remaining,
       na_values = na_str,
       skip_empty_rows = skip_empty_rows,
       num_threads = as.integer(num_threads),
@@ -73,6 +78,9 @@ vroom_lines <- function(
 
     if (length(res) > 0) {
       results[[length(results) + 1L]] <- res
+      if (has_limit) {
+        rows_remaining <- rows_remaining - length(res)
+      }
     }
   }
 
