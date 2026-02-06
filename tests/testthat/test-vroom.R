@@ -531,8 +531,7 @@ test_that("vroom uses the number of rows when guess_max = Inf", {
       tf,
       delim = "\t",
       col_types = list(),
-      altrep = FALSE,
-      use_libvroom = FALSE
+      altrep = FALSE
     )
   )
   expect_type(res[["x"]], "double")
@@ -543,8 +542,7 @@ test_that("vroom uses the number of rows when guess_max = Inf", {
     tf,
     delim = "\t",
     guess_max = Inf,
-    col_types = list(),
-    use_libvroom = FALSE
+    col_types = list()
   )
   expect_type(res[["x"]], "character")
   expect_equal(res[["x"]][[NROW(res) - 1]], "foo")
@@ -1002,8 +1000,7 @@ test_that("leading whitespace effects guessing", {
     delim = ",",
     trim_ws = FALSE,
     progress = FALSE,
-    col_types = list(),
-    use_libvroom = FALSE
+    col_types = list()
   )
   expect_type(out[[1]], "character")
 
@@ -1012,8 +1009,7 @@ test_that("leading whitespace effects guessing", {
     delim = ",",
     trim_ws = TRUE,
     progress = FALSE,
-    col_types = list(),
-    use_libvroom = FALSE
+    col_types = list()
   )
   expect_type(out[[1]], "double")
 })
@@ -1302,7 +1298,7 @@ test_that("vroom does not erronously warn for problems when there are embedded n
 
   vroom_write(df, path, delim = ",")
 
-  x <- vroom(path, delim = ",", col_types = list(), use_libvroom = FALSE)
+  x <- vroom(path, delim = ",", col_types = list())
   y <- utils::read.csv(path, stringsAsFactors = FALSE)
 
   expect_warning(expect_equal(as.data.frame(x), y), NA)
@@ -1411,43 +1407,33 @@ test_that("libvroom is used with col_types = list()", {
   expect_equal(res_null, res_list)
 })
 
-test_that("use_libvroom = FALSE forces old parser", {
-  tf <- tempfile(fileext = ".csv")
-  on.exit(unlink(tf))
-  writeLines(c("x", "1", "2"), tf)
-
-  # use_libvroom = FALSE should force old parser (which returns spec_tbl_df)
-  res <- vroom(tf, delim = ",", use_libvroom = FALSE, show_col_types = FALSE)
-  expect_s3_class(res, "spec_tbl_df")
-})
-
-test_that("libvroom path shows col_types by default", {
+test_that("shows col_types by default", {
   tf <- tempfile(fileext = ".csv")
   on.exit(unlink(tf))
   writeLines("x,y\n1,hello\n2,world", tf)
 
   expect_message(
-    vroom(tf, delim = ",", use_libvroom = TRUE, show_col_types = NULL),
+    vroom(tf, delim = ",", show_col_types = NULL),
     "Column specification"
   )
 })
 
-test_that("libvroom path suppresses col_types when show_col_types = FALSE", {
+test_that("suppresses col_types when show_col_types = FALSE", {
   tf <- tempfile(fileext = ".csv")
   on.exit(unlink(tf))
   writeLines("x,y\n1,hello\n2,world", tf)
 
   expect_no_message(
-    vroom(tf, delim = ",", use_libvroom = TRUE, show_col_types = FALSE)
+    vroom(tf, delim = ",", show_col_types = FALSE)
   )
 })
 
-test_that("libvroom path attaches spec attribute", {
+test_that("attaches spec attribute", {
   tf <- tempfile(fileext = ".csv")
   on.exit(unlink(tf))
   writeLines("x,y\n1,hello\n2,world", tf)
 
-  res <- vroom(tf, delim = ",", use_libvroom = TRUE, show_col_types = FALSE)
+  res <- vroom(tf, delim = ",", show_col_types = FALSE)
   s <- spec(res)
   expect_s3_class(s, "col_spec")
   expect_equal(length(s$cols), 2L)
