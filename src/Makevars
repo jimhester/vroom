@@ -5,7 +5,7 @@ PKG_LIBS=-lz
 # vroom's own source files
 VROOM_SOURCES = Iconv.cpp LocaleInfo.cpp altrep.cc cpp11.cpp \
 	gen.cc grisu3.c guess_type.cc \
-	iconv_file.cc vroom_write.cc \
+	iconv_file.cc parse_helpers.cc vroom_utils.cpp vroom_write.cc \
 	r_abort.cc
 
 # All libvroom source files (excluding cli.cpp)
@@ -56,7 +56,7 @@ HIGHWAY_SOURCES = libvroom/third_party/hwy/aligned_allocator.cc \
 OBJECTS = arrow_to_r.o libvroom_helpers.o vroom_arrow_chr.o vroom_dict_chr.o vroom_new.o vroom_arrow.o vroom_fwf_libvroom.o vroom_lines_libvroom.o \
 	Iconv.o LocaleInfo.o altrep.o cpp11.o \
 	gen.o grisu3.o guess_type.o \
-	iconv_file.o vroom_write.o \
+	iconv_file.o parse_helpers.o vroom_utils.o vroom_write.o \
 	r_abort.o \
 	libvroom/src/cache/index_cache.o \
 	libvroom/src/columns/column_builder.o \

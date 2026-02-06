@@ -68,6 +68,27 @@ extern "C" SEXP _vroom_vroom_libvroom_(SEXP input, SEXP delim, SEXP quote, SEXP 
     return cpp11::as_sexp(vroom_libvroom_(cpp11::as_cpp<cpp11::decay_t<SEXP>>(input), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(delim), cpp11::as_cpp<cpp11::decay_t<char>>(quote), cpp11::as_cpp<cpp11::decay_t<bool>>(has_header), cpp11::as_cpp<cpp11::decay_t<int>>(skip), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<bool>>(trim_ws), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(strings_as_factors), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_types), cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(col_type_names), cpp11::as_cpp<cpp11::decay_t<int>>(default_col_type), cpp11::as_cpp<cpp11::decay_t<bool>>(escape_backslash)));
   END_CPP11
 }
+// vroom_utils.cpp
+bool has_trailing_newline(const cpp11::strings& filename);
+extern "C" SEXP _vroom_has_trailing_newline(SEXP filename) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(has_trailing_newline(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(filename)));
+  END_CPP11
+}
+// vroom_utils.cpp
+cpp11::writable::doubles utctime_(const cpp11::integers& year, const cpp11::integers& month, const cpp11::integers& day, const cpp11::integers& hour, const cpp11::integers& min, const cpp11::integers& sec, const cpp11::doubles& psec);
+extern "C" SEXP _vroom_utctime_(SEXP year, SEXP month, SEXP day, SEXP hour, SEXP min, SEXP sec, SEXP psec) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(utctime_(cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(year), cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(month), cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(day), cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(hour), cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(min), cpp11::as_cpp<cpp11::decay_t<const cpp11::integers&>>(sec), cpp11::as_cpp<cpp11::decay_t<const cpp11::doubles&>>(psec)));
+  END_CPP11
+}
+// vroom_utils.cpp
+cpp11::list whitespace_columns_(const std::string& filename, size_t skip, ptrdiff_t n, const std::string& comment);
+extern "C" SEXP _vroom_whitespace_columns_(SEXP filename, SEXP skip, SEXP n, SEXP comment) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(whitespace_columns_(cpp11::as_cpp<cpp11::decay_t<const std::string&>>(filename), cpp11::as_cpp<cpp11::decay_t<size_t>>(skip), cpp11::as_cpp<cpp11::decay_t<ptrdiff_t>>(n), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment)));
+  END_CPP11
+}
 // vroom_write.cc
 void vroom_write_(const cpp11::list& input, const std::string& filename, const char delim, const std::string& eol, const char* na_str, bool col_names, bool append, size_t options, size_t num_threads, bool progress, size_t buf_lines);
 extern "C" SEXP _vroom_vroom_write_(SEXP input, SEXP filename, SEXP delim, SEXP eol, SEXP na_str, SEXP col_names, SEXP append, SEXP options, SEXP num_threads, SEXP progress, SEXP buf_lines) {
@@ -97,6 +118,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_convert_connection",      (DL_FUNC) &_vroom_convert_connection,       4},
     {"_vroom_gen_character_",          (DL_FUNC) &_vroom_gen_character_,           6},
     {"_vroom_guess_type_",             (DL_FUNC) &_vroom_guess_type_,              4},
+    {"_vroom_has_trailing_newline",    (DL_FUNC) &_vroom_has_trailing_newline,     1},
+    {"_vroom_utctime_",                (DL_FUNC) &_vroom_utctime_,                 7},
     {"_vroom_vroom_arrow_",            (DL_FUNC) &_vroom_vroom_arrow_,             9},
     {"_vroom_vroom_convert",           (DL_FUNC) &_vroom_vroom_convert,            1},
     {"_vroom_vroom_format_",           (DL_FUNC) &_vroom_vroom_format_,           10},
@@ -106,6 +129,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_vroom_str_",              (DL_FUNC) &_vroom_vroom_str_,               1},
     {"_vroom_vroom_write_",            (DL_FUNC) &_vroom_vroom_write_,            11},
     {"_vroom_vroom_write_connection_", (DL_FUNC) &_vroom_vroom_write_connection_, 12},
+    {"_vroom_whitespace_columns_",     (DL_FUNC) &_vroom_whitespace_columns_,      4},
     {NULL, NULL, 0}
 };
 }

@@ -36,6 +36,18 @@ vroom_libvroom_ <- function(input, delim, quote, has_header, skip, comment, skip
   .Call(`_vroom_vroom_libvroom_`, input, delim, quote, has_header, skip, comment, skip_empty_rows, trim_ws, na_values, num_threads, strings_as_factors, use_altrep, col_types, col_type_names, default_col_type, escape_backslash)
 }
 
+has_trailing_newline <- function(filename) {
+  .Call(`_vroom_has_trailing_newline`, filename)
+}
+
+utctime_ <- function(year, month, day, hour, min, sec, psec) {
+  .Call(`_vroom_utctime_`, year, month, day, hour, min, sec, psec)
+}
+
+whitespace_columns_ <- function(filename, skip, n, comment) {
+  .Call(`_vroom_whitespace_columns_`, filename, skip, n, comment)
+}
+
 vroom_write_ <- function(input, filename, delim, eol, na_str, col_names, append, options, num_threads, progress, buf_lines) {
   invisible(.Call(`_vroom_vroom_write_`, input, filename, delim, eol, na_str, col_names, append, options, num_threads, progress, buf_lines))
 }
