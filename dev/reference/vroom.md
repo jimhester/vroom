@@ -27,8 +27,7 @@ vroom(
   num_threads = vroom_threads(),
   progress = vroom_progress(),
   show_col_types = NULL,
-  .name_repair = "unique",
-  use_libvroom = NULL
+  .name_repair = "unique"
 )
 ```
 
@@ -257,13 +256,6 @@ vroom(
   See there for more details on these terms and the strategies used to
   enforce them.
 
-- use_libvroom:
-
-  Control use of the experimental libvroom SIMD-accelerated CSV parsing
-  backend. `NULL` (default) auto-detects whether the backend can handle
-  the request, `TRUE` prefers libvroom, and `FALSE` forces the legacy
-  parser.
-
 ## Examples
 
 ``` r
@@ -329,8 +321,8 @@ vroom(input_file, col_select = c(model, cyl, gear))
 #> Rows: 32 Columns: 3
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> chr (1): model
-#> dbl (2): cyl, gear
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
@@ -352,8 +344,8 @@ vroom(input_file, col_select = c(1, 3, 11))
 #> Rows: 32 Columns: 3
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> chr (1): model
-#> dbl (2): cyl, gear
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
@@ -377,7 +369,8 @@ vroom(input_file, col_select = starts_with("d"))
 #> Rows: 32 Columns: 2
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> dbl (2): disp, drat
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.

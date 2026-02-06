@@ -273,7 +273,7 @@ same format, you can read a subset of the files at once like so:</p>
 <span><span class="fu"><a href="../reference/vroom.html">vroom</a></span><span class="op">(</span><span class="fu">purrr</span><span class="fu">::</span><span class="fu"><a href="https://purrr.tidyverse.org/reference/map.html" class="external-link">map</a></span><span class="op">(</span><span class="va">filenames</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">3</span><span class="op">)</span><span class="op">]</span>, \<span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/connections.html" class="external-link">unz</a></span><span class="op">(</span><span class="va">zip_file</span>, <span class="va">x</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">25</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">12</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
-<span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
+<span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
 <span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
@@ -299,7 +299,7 @@ the URL of the file to vroom.</p>
 <span><span class="fu"><a href="../reference/vroom.html">vroom</a></span><span class="op">(</span><span class="va">file</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">12</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
-<span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
+<span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
 <span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
@@ -320,7 +320,7 @@ other compressed formats).</p>
 <span><span class="fu"><a href="../reference/vroom.html">vroom</a></span><span class="op">(</span><span class="va">file</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">12</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
-<span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
+<span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
 <span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
@@ -352,8 +352,8 @@ example you can select by:</p>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">3</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
-<span><span class="co">#&gt; <span style="color: #BB0000;">chr</span> (1): model</span></span>
-<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (2): cyl, gear</span></span>
+<span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
+<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Use `spec()` to retrieve the full column specification for this data.</span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Specify the column types or set `show_col_types = FALSE` to quiet this message.</span></span>
@@ -374,8 +374,8 @@ e.g. <code>c(1, 2, 5)</code>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">3</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
-<span><span class="co">#&gt; <span style="color: #BB0000;">chr</span> (1): model</span></span>
-<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (2): cyl, gear</span></span>
+<span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
+<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Use `spec()` to retrieve the full column specification for this data.</span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Specify the column types or set `show_col_types = FALSE` to quiet this message.</span></span>
@@ -396,7 +396,8 @@ e.g. <code>c(1, 2, 5)</code>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Rows: </span><span style="color: #0000BB;">32</span> <span style="font-weight: bold;">Columns: </span><span style="color: #0000BB;">2</span></span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="font-weight: bold;">Column specification</span> <span style="color: #00BBBB;">───────────────────────────────────────────────</span></span></span>
 <span><span class="co">#&gt; <span style="font-weight: bold;">Delimiter:</span> ","</span></span>
-<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (2): disp, drat</span></span>
+<span><span class="co">#&gt; <span style="color: #BB0000;">chr</span>  (1): model</span></span>
+<span><span class="co">#&gt; <span style="color: #00BB00;">dbl</span> (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Use `spec()` to retrieve the full column specification for this data.</span></span>
 <span><span class="co">#&gt; <span style="color: #00BBBB;">ℹ</span> Specify the column types or set `show_col_types = FALSE` to quiet this message.</span></span>

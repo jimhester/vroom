@@ -202,7 +202,7 @@ filenames
 vroom(purrr::map(filenames[c(1, 3)], \(x) unz(zip_file, x)))
 #> Rows: 25 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
+#> 
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -228,7 +228,7 @@ file <- "https://raw.githubusercontent.com/tidyverse/vroom/main/inst/extdata/mtc
 vroom(file)
 #> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
+#> 
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -252,7 +252,7 @@ file <- "https://raw.githubusercontent.com/tidyverse/vroom/main/inst/extdata/mtc
 vroom(file)
 #> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
+#> 
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -284,8 +284,8 @@ vroom(file, col_select = c(model, cyl, gear))
 #> Rows: 32 Columns: 3
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> chr (1): model
-#> dbl (2): cyl, gear
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
@@ -305,8 +305,8 @@ vroom(file, col_select = c(1, 3, 11))
 #> Rows: 32 Columns: 3
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> chr (1): model
-#> dbl (2): cyl, gear
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
@@ -329,7 +329,8 @@ vroom(file, col_select = starts_with("d"))
 #> Rows: 32 Columns: 2
 #> ── Column specification ───────────────────────────────────────────────
 #> Delimiter: ","
-#> dbl (2): disp, drat
+#> chr  (1): model
+#> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
 #> ℹ Use `spec()` to retrieve the full column specification for this data.
 #> ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
