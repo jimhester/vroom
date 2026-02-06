@@ -119,10 +119,10 @@ extern "C" SEXP _vroom_vroom_libvroom_fwf_(SEXP input, SEXP col_starts, SEXP col
   END_CPP11
 }
 // vroom_lines_libvroom.cpp
-SEXP vroom_lines_libvroom_(SEXP input, int skip, const std::string& na_values, bool skip_empty_rows, int num_threads, bool use_altrep);
-extern "C" SEXP _vroom_vroom_lines_libvroom_(SEXP input, SEXP skip, SEXP na_values, SEXP skip_empty_rows, SEXP num_threads, SEXP use_altrep) {
+SEXP vroom_lines_libvroom_(SEXP input, int skip, int n_max, const std::string& na_values, bool skip_empty_rows, int num_threads, bool use_altrep);
+extern "C" SEXP _vroom_vroom_lines_libvroom_(SEXP input, SEXP skip, SEXP n_max, SEXP na_values, SEXP skip_empty_rows, SEXP num_threads, SEXP use_altrep) {
   BEGIN_CPP11
-    return cpp11::as_sexp(vroom_lines_libvroom_(cpp11::as_cpp<cpp11::decay_t<SEXP>>(input), cpp11::as_cpp<cpp11::decay_t<int>>(skip), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep)));
+    return cpp11::as_sexp(vroom_lines_libvroom_(cpp11::as_cpp<cpp11::decay_t<SEXP>>(input), cpp11::as_cpp<cpp11::decay_t<int>>(skip), cpp11::as_cpp<cpp11::decay_t<int>>(n_max), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep)));
   END_CPP11
 }
 // vroom_new.cpp
@@ -172,7 +172,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_vroom_fwf_",              (DL_FUNC) &_vroom_vroom_fwf_,              19},
     {"_vroom_vroom_libvroom_",         (DL_FUNC) &_vroom_vroom_libvroom_,         15},
     {"_vroom_vroom_libvroom_fwf_",     (DL_FUNC) &_vroom_vroom_libvroom_fwf_,     13},
-    {"_vroom_vroom_lines_libvroom_",   (DL_FUNC) &_vroom_vroom_lines_libvroom_,    6},
+    {"_vroom_vroom_lines_libvroom_",   (DL_FUNC) &_vroom_vroom_lines_libvroom_,    7},
     {"_vroom_vroom_materialize",       (DL_FUNC) &_vroom_vroom_materialize,        2},
     {"_vroom_vroom_rle",               (DL_FUNC) &_vroom_vroom_rle,                1},
     {"_vroom_vroom_str_",              (DL_FUNC) &_vroom_vroom_str_,               1},

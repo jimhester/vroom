@@ -34,6 +34,7 @@ vroom_lines <- function(
     return(character())
   }
 
+  n_max_int <- if (is.infinite(n_max) || n_max < 0) -1L else as.integer(n_max)
   na_str <- paste(na, collapse = ",")
 
   results <- list()
@@ -63,6 +64,7 @@ vroom_lines <- function(
     res <- vroom_lines_libvroom_(
       input = input,
       skip = as.integer(skip),
+      n_max = n_max_int,
       na_values = na_str,
       skip_empty_rows = skip_empty_rows,
       num_threads = as.integer(num_threads),
@@ -78,12 +80,5 @@ vroom_lines <- function(
     return(character())
   }
 
-  out <- if (length(results) == 1) results[[1]] else unlist(results)
-
-  # Apply n_max row limit (R-side truncation)
-  if (is.finite(n_max) && n_max >= 0 && length(out) > n_max) {
-    out <- out[seq_len(n_max)]
-  }
-
-  out
+  if (length(results) == 1) results[[1]] else unlist(results)
 }
