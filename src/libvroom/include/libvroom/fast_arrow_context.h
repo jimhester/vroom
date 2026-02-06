@@ -185,14 +185,14 @@ public:
 
   // Bool
   static void append_bool(FastArrowContext& ctx, std::string_view value) {
-    if (value == "true" || value == "TRUE" || value == "True" || value == "1" || value == "yes" ||
-        value == "YES") {
+    if (value == "true" || value == "TRUE" || value == "True" || value == "T" || value == "t" ||
+        value == "1" || value == "yes" || value == "YES" || value == "Yes") {
       ctx.bool_buffer->push_back(1);
       ctx.null_bitmap->push_back_valid();
       return;
     }
-    if (value == "false" || value == "FALSE" || value == "False" || value == "0" || value == "no" ||
-        value == "NO") {
+    if (value == "false" || value == "FALSE" || value == "False" || value == "F" || value == "f" ||
+        value == "0" || value == "no" || value == "NO" || value == "No") {
       ctx.bool_buffer->push_back(0);
       ctx.null_bitmap->push_back_valid();
       return;
