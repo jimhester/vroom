@@ -4,6 +4,10 @@ vroom_convert <- function(x) {
   .Call(`_vroom_vroom_convert`, x)
 }
 
+vroom_materialize <- function(x, replace) {
+  .Call(`_vroom_vroom_materialize`, x, replace)
+}
+
 vroom_str_ <- function(x) {
   .Call(`_vroom_vroom_str_`, x)
 }
@@ -46,6 +50,18 @@ utctime_ <- function(year, month, day, hour, min, sec, psec) {
 
 whitespace_columns_ <- function(filename, skip, n, comment) {
   .Call(`_vroom_whitespace_columns_`, filename, skip, n, comment)
+}
+
+parse_datetime_ <- function(x, format, locale) {
+  .Call(`_vroom_parse_datetime_`, x, format, locale)
+}
+
+parse_date_ <- function(x, format, locale) {
+  .Call(`_vroom_parse_date_`, x, format, locale)
+}
+
+parse_time_ <- function(x, format, locale) {
+  .Call(`_vroom_parse_time_`, x, format, locale)
 }
 
 vroom_write_ <- function(input, filename, delim, eol, na_str, col_names, append, options, num_threads, progress, buf_lines) {

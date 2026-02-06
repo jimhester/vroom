@@ -13,6 +13,13 @@ extern "C" SEXP _vroom_vroom_convert(SEXP x) {
   END_CPP11
 }
 // altrep.cc
+SEXP vroom_materialize(SEXP x, bool replace);
+extern "C" SEXP _vroom_vroom_materialize(SEXP x, SEXP replace) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(vroom_materialize(cpp11::as_cpp<cpp11::decay_t<SEXP>>(x), cpp11::as_cpp<cpp11::decay_t<bool>>(replace)));
+  END_CPP11
+}
+// altrep.cc
 std::string vroom_str_(const cpp11::sexp& x);
 extern "C" SEXP _vroom_vroom_str_(SEXP x) {
   BEGIN_CPP11
@@ -89,6 +96,27 @@ extern "C" SEXP _vroom_whitespace_columns_(SEXP filename, SEXP skip, SEXP n, SEX
     return cpp11::as_sexp(whitespace_columns_(cpp11::as_cpp<cpp11::decay_t<const std::string&>>(filename), cpp11::as_cpp<cpp11::decay_t<size_t>>(skip), cpp11::as_cpp<cpp11::decay_t<ptrdiff_t>>(n), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment)));
   END_CPP11
 }
+// vroom_utils.cpp
+cpp11::writable::doubles parse_datetime_(const cpp11::strings& x, const std::string& format, const cpp11::list& locale);
+extern "C" SEXP _vroom_parse_datetime_(SEXP x, SEXP format, SEXP locale) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(parse_datetime_(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(x), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(format), cpp11::as_cpp<cpp11::decay_t<const cpp11::list&>>(locale)));
+  END_CPP11
+}
+// vroom_utils.cpp
+cpp11::writable::doubles parse_date_(const cpp11::strings& x, const std::string& format, const cpp11::list& locale);
+extern "C" SEXP _vroom_parse_date_(SEXP x, SEXP format, SEXP locale) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(parse_date_(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(x), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(format), cpp11::as_cpp<cpp11::decay_t<const cpp11::list&>>(locale)));
+  END_CPP11
+}
+// vroom_utils.cpp
+cpp11::writable::doubles parse_time_(const cpp11::strings& x, const std::string& format, const cpp11::list& locale);
+extern "C" SEXP _vroom_parse_time_(SEXP x, SEXP format, SEXP locale) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(parse_time_(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(x), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(format), cpp11::as_cpp<cpp11::decay_t<const cpp11::list&>>(locale)));
+  END_CPP11
+}
 // vroom_write.cc
 void vroom_write_(const cpp11::list& input, const std::string& filename, const char delim, const std::string& eol, const char* na_str, bool col_names, bool append, size_t options, size_t num_threads, bool progress, size_t buf_lines);
 extern "C" SEXP _vroom_vroom_write_(SEXP input, SEXP filename, SEXP delim, SEXP eol, SEXP na_str, SEXP col_names, SEXP append, SEXP options, SEXP num_threads, SEXP progress, SEXP buf_lines) {
@@ -119,6 +147,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_gen_character_",          (DL_FUNC) &_vroom_gen_character_,           6},
     {"_vroom_guess_type_",             (DL_FUNC) &_vroom_guess_type_,              4},
     {"_vroom_has_trailing_newline",    (DL_FUNC) &_vroom_has_trailing_newline,     1},
+    {"_vroom_parse_date_",             (DL_FUNC) &_vroom_parse_date_,              3},
+    {"_vroom_parse_datetime_",         (DL_FUNC) &_vroom_parse_datetime_,          3},
+    {"_vroom_parse_time_",             (DL_FUNC) &_vroom_parse_time_,              3},
     {"_vroom_utctime_",                (DL_FUNC) &_vroom_utctime_,                 7},
     {"_vroom_vroom_arrow_",            (DL_FUNC) &_vroom_vroom_arrow_,             9},
     {"_vroom_vroom_convert",           (DL_FUNC) &_vroom_vroom_convert,            1},
@@ -126,6 +157,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_vroom_libvroom_",         (DL_FUNC) &_vroom_vroom_libvroom_,         16},
     {"_vroom_vroom_libvroom_fwf_",     (DL_FUNC) &_vroom_vroom_libvroom_fwf_,     13},
     {"_vroom_vroom_lines_libvroom_",   (DL_FUNC) &_vroom_vroom_lines_libvroom_,    7},
+    {"_vroom_vroom_materialize",       (DL_FUNC) &_vroom_vroom_materialize,        2},
     {"_vroom_vroom_str_",              (DL_FUNC) &_vroom_vroom_str_,               1},
     {"_vroom_vroom_write_",            (DL_FUNC) &_vroom_vroom_write_,            11},
     {"_vroom_vroom_write_connection_", (DL_FUNC) &_vroom_vroom_write_connection_, 12},

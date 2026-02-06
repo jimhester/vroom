@@ -57,6 +57,16 @@
       * Literal or raw input
       x `some_arg_name` is a list.
 
+# multiple files with non-ASCII encoding fails informatively
+
+    Code
+      vroom(c(input, input), locale = locale(encoding = "UTF-16"))
+    Condition
+      Error in `vroom()`:
+      ! Reading multiple files with encoding "UTF-16" is not supported.
+      i Only ASCII-compatible encodings work with multiple files.
+      i Try reading each file separately.
+
 # writing to .zip without archive package fails informatively
 
     Code

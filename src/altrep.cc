@@ -58,6 +58,52 @@
   return out;
 }
 
+// Force in-place materialization of any ALTREP columns in a data frame,
+// without creating copies. For numeric types, accessing the data pointer
+// triggers materialization. For strings, we touch each element.
+[[cpp11::register]] SEXP vroom_materialize(SEXP x, bool replace) {
+  for (R_xlen_t col = 0; col < Rf_xlength(x); ++col) {
+    SEXP elt = VECTOR_ELT(x, col);
+    if (ALTREP(elt)) {
+      R_xlen_t n = Rf_xlength(elt);
+      switch (TYPEOF(elt)) {
+      case LGLSXP:
+        LOGICAL(elt);
+        break;
+      case INTSXP:
+        INTEGER(elt);
+        break;
+      case REALSXP:
+        REAL(elt);
+        break;
+      case STRSXP:
+        // STRING_PTR_RO triggers full materialization for STRSXP ALTREP
+        STRING_PTR_RO(elt);
+        break;
+      default:
+        // For other types, access each element to force materialization
+        for (R_xlen_t i = 0; i < n; ++i) {
+          VECTOR_ELT(elt, i);
+        }
+        break;
+      }
+    }
+  }
+
+  if (replace) {
+    for (R_xlen_t col = 0; col < Rf_xlength(x); ++col) {
+      SEXP elt = PROTECT(VECTOR_ELT(x, col));
+      if (ALTREP(elt) && R_altrep_data2(elt) != R_NilValue) {
+        SET_VECTOR_ELT(x, col, R_altrep_data2(elt));
+        R_set_altrep_data2(elt, R_NilValue);
+      }
+      UNPROTECT(1);
+    }
+  }
+
+  return x;
+}
+
 [[cpp11::register]] std::string vroom_str_(const cpp11::sexp& x) {
   std::stringstream ss;
 

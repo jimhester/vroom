@@ -15,7 +15,7 @@
         [32mcol_number()[39m,
         [34mcol_date(format = "")[39m,
         [34mcol_datetime(format = "")[39m,
-        
+        .delim = ","
       )
 
 # cols() errors for invalid collector objects

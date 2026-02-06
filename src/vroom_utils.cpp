@@ -4,9 +4,11 @@
 #include <cpp11/doubles.hpp>
 #include <cpp11/integers.hpp>
 #include <cpp11/list.hpp>
+#include <cpp11/logicals.hpp>
 #include <cpp11/strings.hpp>
 
 #include "DateTime.h"
+#include "DateTimeParser.h"
 #include "unicode_fopen.h"
 #include "utils.h"
 
@@ -141,4 +143,135 @@ find_empty_cols(Iterator begin, Iterator end, ptrdiff_t n) {
 
   using namespace cpp11::literals;
   return cpp11::writable::list({"begin"_nm = begin, "end"_nm = end});
+}
+
+// ============================================================================
+// Datetime/date/time parsing using the readr DateTimeParser
+// ============================================================================
+
+[[cpp11::register]] cpp11::writable::doubles parse_datetime_(
+    const cpp11::strings& x,
+    const std::string& format,
+    const cpp11::list& locale) {
+
+  LocaleInfo loc(locale);
+  DateTimeParser parser(&loc);
+
+  int n = x.size();
+  cpp11::writable::doubles out(n);
+
+  for (int i = 0; i < n; ++i) {
+    SEXP str = x[i];
+    if (str == NA_STRING) {
+      out[i] = NA_REAL;
+      continue;
+    }
+    const char* s = CHAR(str);
+    int len = strlen(s);
+    parser.setDate(s, s + len);
+
+    bool ok;
+    if (format.empty() || format == "%AD %AT" || format == "%ADT%AT") {
+      ok = parser.parseISO8601();
+    } else {
+      ok = parser.parse(format);
+    }
+
+    if (ok) {
+      DateTime dt = parser.makeDateTime();
+      out[i] = dt.validDateTime() ? dt.datetime() : NA_REAL;
+    } else {
+      out[i] = NA_REAL;
+    }
+  }
+
+  out.attr("class") = {"POSIXct", "POSIXt"};
+  out.attr("tzone") = loc.tz_;
+
+  return out;
+}
+
+[[cpp11::register]] cpp11::writable::doubles parse_date_(
+    const cpp11::strings& x,
+    const std::string& format,
+    const cpp11::list& locale) {
+
+  LocaleInfo loc(locale);
+  DateTimeParser parser(&loc);
+
+  int n = x.size();
+  cpp11::writable::doubles out(n);
+
+  for (int i = 0; i < n; ++i) {
+    SEXP str = x[i];
+    if (str == NA_STRING) {
+      out[i] = NA_REAL;
+      continue;
+    }
+    const char* s = CHAR(str);
+    int len = strlen(s);
+    parser.setDate(s, s + len);
+
+    bool ok;
+    if (format.empty()) {
+      ok = parser.parseDate();
+    } else if (format == "%AD") {
+      ok = parser.parseDate();
+    } else {
+      ok = parser.parse(format);
+    }
+
+    if (ok) {
+      DateTime dt = parser.makeDate();
+      out[i] = dt.validDate() ? static_cast<double>(dt.date()) : NA_REAL;
+    } else {
+      out[i] = NA_REAL;
+    }
+  }
+
+  out.attr("class") = "Date";
+
+  return out;
+}
+
+[[cpp11::register]] cpp11::writable::doubles parse_time_(
+    const cpp11::strings& x,
+    const std::string& format,
+    const cpp11::list& locale) {
+
+  LocaleInfo loc(locale);
+  DateTimeParser parser(&loc);
+
+  int n = x.size();
+  cpp11::writable::doubles out(n);
+
+  for (int i = 0; i < n; ++i) {
+    SEXP str = x[i];
+    if (str == NA_STRING) {
+      out[i] = NA_REAL;
+      continue;
+    }
+    const char* s = CHAR(str);
+    int len = strlen(s);
+    parser.setDate(s, s + len);
+
+    bool ok;
+    if (format.empty() || format == "%AT") {
+      ok = parser.parseTime();
+    } else {
+      ok = parser.parse(format);
+    }
+
+    if (ok) {
+      DateTime dt = parser.makeTime();
+      out[i] = dt.time();
+    } else {
+      out[i] = NA_REAL;
+    }
+  }
+
+  out.attr("class") = {"hms", "difftime"};
+  out.attr("units") = "secs";
+
+  return out;
 }
