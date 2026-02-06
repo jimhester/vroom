@@ -1062,12 +1062,6 @@ test_that("empty files still generate the correct column width and types", {
 })
 
 test_that("leading whitespace effects guessing", {
-  # libvroom's type inference trims whitespace before guessing regardless of
-
-  # trim_ws setting, so " 1" is guessed as double in both cases.
-  # The trim_ws=FALSE case preserves the whitespace in the output value but
-  # type inference still sees "1".
-  skip("libvroom type inference does not consider trim_ws for guessing")
   out <- vroom(
     I('a,b,c\n 1,2,3\n'),
     delim = ",",
