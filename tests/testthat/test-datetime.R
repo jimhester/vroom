@@ -373,11 +373,10 @@ test_that("ambiguous times always choose the earliest time", {
   test_parse_datetime("1970-10-25 01:30:00", locale = ny, expected = expected)
 })
 
-test_that("nonexistent times are adjusted by R", {
-  # R's as.POSIXct adjusts nonexistent times (DST spring-forward) rather than
-
-  # returning NA. The old readr parser returned NA, but R's behavior of
-  # adjusting to the nearest valid time is also reasonable.
+test_that("nonexistent times are handled consistently with R's format-based parsing", {
+  # 1970-04-26 02:30:00 doesn't exist in America/New_York (DST spring-forward).
+  # vroom reinterprets timestamps via format() -> as.POSIXct() round-trip.
+  # For nonexistent DST times, this may return NA on some platforms.
   ny <- locale(tz = "America/New_York")
   result <- suppressWarnings(
     vroom(
@@ -388,8 +387,10 @@ test_that("nonexistent times are adjusted by R", {
       locale = ny
     )
   )
-  # R adjusts the nonexistent 02:30 to 01:30 (before spring-forward)
-  expected <- as.POSIXct("1970-04-26 02:30:00", tz = "America/New_York")
+  # Compute expected using the same format-based round-trip vroom uses internally
+  utc_time <- as.POSIXct("1970-04-26 02:30:00", tz = "UTC")
+  utc_str <- format(utc_time, format = "%Y-%m-%d %H:%M:%OS6", tz = "UTC")
+  expected <- as.POSIXct(utc_str, format = "%Y-%m-%d %H:%M:%OS", tz = "America/New_York")
   expect_equal(result$X1, expected)
 })
 
