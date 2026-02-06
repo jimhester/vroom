@@ -104,6 +104,15 @@ DataType TypeInference::infer_field(std::string_view value) {
     return DataType::FLOAT64;
   }
 
+  // fast_float doesn't handle leading '+' — strip it and retry
+  if (!value.empty() && value[0] == '+') {
+    auto rest = std::string_view(value.data() + 1, value.size() - 1);
+    auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
+    if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
+      return DataType::FLOAT64;
+    }
+  }
+
   // Check for ISO8601 date format (YYYY-MM-DD or YYYY/MM/DD)
   if (value.size() == 10 && (value[4] == '-' || value[4] == '/') &&
       value[7] == value[4] && // Separators must match

@@ -63,10 +63,6 @@ test_that("Test that values with only a NaN prefix are _not_ parsed as doubles",
 })
 
 test_that("Inf and -Inf values are guessed and parsed as doubles (https://github.com/tidyverse/readr/issues/1283)", {
-  # libvroom's type guesser does not recognize Inf/-Inf as doubles;
-  # they are parsed as character strings when using col_guess().
-  # With explicit col_types = "d", they would need FLOAT64 parsing support for Inf.
-  skip("libvroom type guesser does not recognize Inf/-Inf as doubles")
   test_vroom(
     I("x\nInf\n-Inf\n+Inf"),
     delim = ",",

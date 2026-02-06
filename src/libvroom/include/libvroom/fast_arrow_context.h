@@ -173,10 +173,20 @@ public:
     if (ec == std::errc() && ptr == value.data() + value.size()) {
       ctx.float64_buffer->push_back(result);
       ctx.null_bitmap->push_back_valid();
-    } else {
-      ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());
-      ctx.null_bitmap->push_back_null();
+      return;
     }
+    // fast_float doesn't handle leading '+' — strip it and retry
+    if (!value.empty() && value[0] == '+') {
+      auto rest = std::string_view(value.data() + 1, value.size() - 1);
+      auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
+      if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
+        ctx.float64_buffer->push_back(result);
+        ctx.null_bitmap->push_back_valid();
+        return;
+      }
+    }
+    ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());
+    ctx.null_bitmap->push_back_null();
   }
   static void append_null_float64(FastArrowContext& ctx) {
     ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());

@@ -352,9 +352,20 @@ public:
 
     if (ec == std::errc() && ptr == value.data() + value.size()) {
       storage_.append(result, false);
-    } else {
-      storage_.append(std::numeric_limits<double>::quiet_NaN(), true);
+      invalidate_cache();
+      return;
     }
+    // fast_float doesn't handle leading '+' — strip it and retry
+    if (!value.empty() && value[0] == '+') {
+      auto rest = std::string_view(value.data() + 1, value.size() - 1);
+      auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
+      if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
+        storage_.append(result, false);
+        invalidate_cache();
+        return;
+      }
+    }
+    storage_.append(std::numeric_limits<double>::quiet_NaN(), true);
     invalidate_cache();
   }
 
