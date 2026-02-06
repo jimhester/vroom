@@ -1017,6 +1017,48 @@ test_that("libvroom reads I() literal data", {
   expect_s3_class(actual, "spec_tbl_df")
 })
 
+test_that("libvroom emits deprecation warning for escape_backslash = TRUE", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+
+  out_con <- file(tf, "wb", encoding = "UTF-8")
+  writeBin(charToRaw("a,b\n1,2\n3,4\n"), out_con)
+  close(out_con)
+
+  lifecycle::expect_deprecated(
+    vroom(
+      tf,
+      delim = ",",
+      escape_backslash = TRUE,
+      use_libvroom = TRUE,
+      show_col_types = FALSE
+    )
+  )
+})
+
+test_that("escape_backslash = TRUE still works via legacy fallback", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+
+  out_con <- file(tf, "wb", encoding = "UTF-8")
+  writeBin(charToRaw('a,b,c\n\\,foo,\\"ba\\"r,baz\\"\n'), out_con)
+  close(out_con)
+
+  lifecycle::expect_deprecated(
+    result <- vroom(
+      tf,
+      delim = ",",
+      escape_backslash = TRUE,
+      escape_double = FALSE,
+      show_col_types = FALSE
+    )
+  )
+
+  expect_equal(result$a, ",foo")
+  expect_equal(result$b, "\"ba\"r")
+  expect_equal(result$c, "baz\"")
+})
+
 test_that("libvroom reads remote CSV files", {
   skip_if_offline()
 
