@@ -30,47 +30,52 @@ vroom_lines <- function(
     locale$encoding <- "UTF-8"
   }
 
-  if (n_max < 0 || is.infinite(n_max)) {
-    n_max <- -1
-  }
-
-  if (length(file) == 0 || n_max == 0) {
+  if (length(file) == 0 || identical(n_max, 0) || identical(n_max, 0L)) {
     return(character())
   }
 
-  col_select <- quo(NULL)
+  na_str <- paste(na, collapse = ",")
 
-  # delim = "\1" sets the delimiter to be start of header, which should never
-  # appear in modern text. This essentially means the only record breaks will
-  # be newlines. Ideally this would be "\0", but R doesn't let you have nulls
-  # in character vectors.
-  out <- vroom_(
-    file,
-    delim = "\1",
-    col_names = "V1",
-    col_types = cols(col_character()),
-    id = NULL,
-    skip = skip,
-    col_select = col_select,
-    name_repair = "minimal",
-    na = na,
-    quote = "",
-    trim_ws = FALSE,
-    escape_double = FALSE,
-    escape_backslash = FALSE,
-    comment = "",
+  input <- file[[1]]
+
+  # Handle compressed/remote files via connections
+  if (is.character(input) && (is_url(input) || is_compressed_path(input))) {
+    input <- connection_or_filepath(input)
+  }
+  # Non-ASCII paths need R connection for proper encoding handling
+  if (is.character(input) && !is_ascii_path(input)) {
+    input <- file(input)
+  }
+
+  if (inherits(input, "connection")) {
+    input <- read_connection_raw(input)
+    if (length(input) == 0L) {
+      return(character())
+    }
+  }
+
+  # Handle empty files before calling C++
+  if (is.character(input) && file.exists(input) && file.size(input) == 0L) {
+    return(character())
+  }
+
+  out <- vroom_lines_libvroom_(
+    input = input,
+    skip = as.integer(skip),
+    na_values = na_str,
     skip_empty_rows = skip_empty_rows,
-    locale = locale,
-    guess_max = 0,
-    n_max = n_max,
-    altrep = vroom_altrep(altrep),
-    num_threads = num_threads,
-    progress = progress,
-    use_libvroom = FALSE
+    num_threads = as.integer(num_threads),
+    use_altrep = isTRUE(altrep)
   )
+
   if (length(out) == 0) {
     return(character())
   }
 
-  out[[1]]
+  # Apply n_max row limit (R-side truncation)
+  if (is.finite(n_max) && n_max >= 0 && length(out) > n_max) {
+    out <- out[seq_len(n_max)]
+  }
+
+  out
 }

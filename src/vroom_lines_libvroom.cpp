@@ -21,8 +21,9 @@
   opts.trim_ws = false;
   if (skip > 0)
     opts.skip = static_cast<size_t>(skip);
-  if (!na_values.empty())
-    opts.null_values = na_values;
+  // Always set null_values, even when empty, to override the default
+  // which includes empty string as a null value
+  opts.null_values = na_values;
   if (num_threads > 0)
     opts.num_threads = static_cast<size_t>(num_threads);
 
