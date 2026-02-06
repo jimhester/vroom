@@ -40,6 +40,10 @@ vroom_libvroom_ <- function(input, delim, quote, has_header, skip, comment, skip
   .Call(`_vroom_vroom_libvroom_`, input, delim, quote, has_header, skip, comment, skip_empty_rows, trim_ws, na_values, num_threads, strings_as_factors, use_altrep, col_types, col_type_names, default_col_type, escape_backslash, decimal_mark, guess_max)
 }
 
+vroom_rle_make <- function(input) {
+  .Call(`_vroom_vroom_rle_make`, input)
+}
+
 has_trailing_newline <- function(filename) {
   .Call(`_vroom_has_trailing_newline`, filename)
 }
