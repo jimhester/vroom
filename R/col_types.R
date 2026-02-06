@@ -411,26 +411,6 @@ vroom_enquo <- function(x) {
   x
 }
 
-vroom_select <- function(x, col_select, id) {
-  # reorder and rename columns
-  if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
-    if (inherits(col_select, "quosures")) {
-      vars <- tidyselect::vars_select(c(names(spec(x)$cols), id), !!!col_select)
-    } else {
-      vars <- tidyselect::vars_select(c(names(spec(x)$cols), id), !!col_select)
-    }
-    if (!is.null(id) && !id %in% vars) {
-      names(id) <- id
-      vars <- c(id, vars)
-    }
-    # This can't be just names(x) as we need to have skipped
-    # names as well to pass to vars_select()
-    x <- x[vars]
-    names(x) <- names(vars)
-  }
-  x
-}
-
 apply_libvroom_col_select <- function(out, col_select, id = NULL) {
   if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
     all_names <- c(names(out), id)
@@ -511,26 +491,6 @@ finalize_libvroom_result <- function(out, problems = NULL) {
     attr(out, "problems") <- tibble::as_tibble(problems)
   }
   class(out) <- c("spec_tbl_df", class(out))
-  out
-}
-
-postprocess_result <- function(
-  out,
-  col_select,
-  id,
-  .name_repair,
-  has_col_types,
-  show_col_types,
-  locale
-) {
-  out <- tibble::as_tibble(out, .name_repair = .name_repair)
-  out <- vroom_select(out, col_select, id)
-  class(out) <- c("spec_tbl_df", class(out))
-
-  if (should_show_col_types(has_col_types, show_col_types)) {
-    show_col_types(out, locale)
-  }
-
   out
 }
 
