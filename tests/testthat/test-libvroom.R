@@ -504,6 +504,41 @@ test_that("libvroom handles skip combined with comment", {
   )
 })
 
+test_that("libvroom handles inline comments via SIMD detection", {
+  # Inline comment in unquoted field
+  test_libvroom(
+    "a,b\n1#comment,2\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1, 3), b = c(NA, 4))
+  )
+
+  # Comment after quoted field
+  test_libvroom(
+    "a,b\n\"val\"#comment,2\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = "val", b = NA_character_)
+  )
+
+  # Hash inside quoted field is preserved (not treated as comment)
+  test_libvroom(
+    "a,b\n\"val#ue\",2\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = "val#ue", b = 2L)
+  )
+
+  # Mixed full-line and inline comments
+  # In "1,2#inline": field b is "2" (comment truncates after the value)
+  test_libvroom(
+    "a,b\n# full line\n1,2#inline\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1, 3), b = c(2, 4))
+  )
+})
+
 test_that("libvroom handles n_max parameter", {
   test_libvroom(
     "a,b,c\n1,2,3\n4,5,6\n7,8,9\n",

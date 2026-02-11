@@ -130,20 +130,24 @@ VROOM_FORCE_INLINE uint64_t scan_for_three_chars(const char* data, size_t len, c
 // Direct port of Polars' SplitFields iterator
 class SplitFields {
 public:
-  // Single-byte separator constructor (SIMD fast path — unchanged)
+  // Single-byte separator constructor (SIMD fast path)
   VROOM_FORCE_INLINE SplitFields(const char* slice, size_t size, char separator, char quote_char,
-                                 char eol_char, bool escape_backslash = false)
+                                 char eol_char, bool escape_backslash = false,
+                                 char comment_char = '\0')
       : v_(slice), remaining_(size), separator_(separator), multi_byte_sep_(false), finished_(false),
         finished_inside_quote_(false), quote_char_(quote_char), quoting_(quote_char != 0),
-        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash) {}
+        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash),
+        comment_char_(comment_char), hit_comment_(false) {}
 
   // Multi-byte separator constructor (scalar slow path)
   VROOM_FORCE_INLINE SplitFields(const char* slice, size_t size, std::string_view separator,
-                                 char quote_char, char eol_char, bool escape_backslash = false)
+                                 char quote_char, char eol_char, bool escape_backslash = false,
+                                 char comment_char = '\0')
       : v_(slice), remaining_(size), separator_(separator.size() == 1 ? separator[0] : '\0'),
         multi_byte_sep_(separator.size() > 1), separator_str_(separator), finished_(false),
         finished_inside_quote_(false), quote_char_(quote_char), quoting_(quote_char != 0),
-        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash) {}
+        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash),
+        comment_char_(comment_char), hit_comment_(false) {}
 
   VROOM_FORCE_INLINE bool next(const char*& field_data, size_t& field_len, bool& needs_escaping) {
     if (finished_) {
@@ -162,7 +166,9 @@ public:
 
       needs_escaping = (quoting_ && remaining_ > 0 && v_[0] == quote_char_);
 
-      if (v_[pos] == eol_char_) {
+      char c = v_[pos];
+      if (c == eol_char_ || (comment_char_ != '\0' && c == comment_char_)) {
+        if (comment_char_ != '\0' && c == comment_char_) hit_comment_ = true;
         return finish_eol(field_data, field_len, needs_escaping, pos);
       }
 
@@ -193,7 +199,8 @@ public:
     }
 
     char c = v_[pos];
-    if (c == eol_char_) {
+    if (c == eol_char_ || (comment_char_ != '\0' && c == comment_char_)) {
+      if (comment_char_ != '\0' && c == comment_char_) hit_comment_ = true;
       return finish_eol(field_data, field_len, needs_escaping, pos);
     }
 
@@ -212,6 +219,10 @@ public:
   // had its closing quote found (i.e., the data ended inside a quote).
   VROOM_FORCE_INLINE bool finished_inside_quote() const { return finished_inside_quote_; }
 
+  // Returns true if the iterator stopped because it hit a comment character.
+  // The caller should skip to the actual EOL in the raw data.
+  VROOM_FORCE_INLINE bool hit_comment() const { return hit_comment_; }
+
 private:
   const char* v_;
   size_t remaining_;
@@ -226,8 +237,12 @@ private:
   uint64_t previous_valid_ends_;
   bool escape_backslash_;
   EscapeState escape_state_;
+  char comment_char_;   // Single-char comment for SIMD fast path ('\0' = disabled)
+  bool hit_comment_;    // Set when iterator stopped at a comment char
 
-  VROOM_FORCE_INLINE bool eof_eol(char c) const { return c == separator_ || c == eol_char_; }
+  VROOM_FORCE_INLINE bool eof_eol(char c) const {
+    return c == separator_ || c == eol_char_ || (comment_char_ != '\0' && c == comment_char_);
+  }
 
   // Check if separator matches at position pos in v_
   VROOM_FORCE_INLINE bool matches_sep_at(size_t pos) const {
@@ -258,6 +273,17 @@ private:
       }
 
       if (in_quote) continue;
+
+      // Check for comment char (outside quotes)
+      if (comment_char_ != '\0' && c == comment_char_) {
+        hit_comment_ = true;
+        finished_ = true;
+        field_data = v_;
+        field_len = i;
+        v_ += i + 1;
+        remaining_ -= i + 1;
+        return true;
+      }
 
       // Check for end-of-line
       if (c == '\n' || c == '\r') {
@@ -327,6 +353,10 @@ private:
       uint64_t quote_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, quote_char_);
 
       uint64_t end_mask = sep_mask | eol_mask;
+      // Comment char outside quotes is also a boundary
+      if (comment_char_ != '\0') {
+        end_mask |= detail::scan_for_char(bytes, detail::SIMD_SIZE, comment_char_);
+      }
 
       // When backslash escaping is enabled, filter out escaped characters.
       // Always call compute_escaped_mask to consume carry bit from previous block.
@@ -389,8 +419,10 @@ private:
     while (remaining_ - total_idx > detail::SIMD_SIZE) {
       const char* bytes = v_ + total_idx;
 
-      uint64_t end_mask =
-          detail::scan_for_two_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_);
+      // Use three-char SIMD scan when comment char is configured, else two-char
+      uint64_t end_mask = (comment_char_ != '\0')
+          ? detail::scan_for_three_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_, comment_char_)
+          : detail::scan_for_two_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_);
 
       // When backslash escaping is enabled, filter out escaped characters.
       // Always call compute_escaped_mask to consume carry bit from previous block.
@@ -416,7 +448,7 @@ private:
       }
     }
 
-    // Scalar fallback
+    // Scalar fallback (eof_eol already includes comment_char_ check)
     const char* bytes = v_ + total_idx;
     size_t len = remaining_ - total_idx;
 
