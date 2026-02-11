@@ -685,6 +685,36 @@ test_that("Can return the spec object", {
   expect_equal(obj, exp)
 })
 
+test_that("spec()$delim reflects auto-detected delimiter from C++", {
+  # CSV file
+  tf_csv <- tempfile(fileext = ".csv")
+  on.exit(unlink(c(tf_csv, tf_tsv, tf_pipe)), add = TRUE)
+  writeLines(c("a,b,c", "1,2,3"), tf_csv)
+  res_csv <- vroom(tf_csv, show_col_types = FALSE)
+  expect_equal(spec(res_csv)$delim, ",")
+
+  # TSV file
+  tf_tsv <- tempfile(fileext = ".tsv")
+  writeLines(c("a\tb\tc", "1\t2\t3"), tf_tsv)
+  res_tsv <- vroom(tf_tsv, show_col_types = FALSE)
+  expect_equal(spec(res_tsv)$delim, "\t")
+
+  # Pipe-delimited file
+  tf_pipe <- tempfile()
+  writeLines(c("a|b|c", "1|2|3"), tf_pipe)
+  res_pipe <- vroom(tf_pipe, show_col_types = FALSE)
+  expect_equal(spec(res_pipe)$delim, "|")
+})
+
+test_that("spec()$delim works for connections (not just file paths)", {
+  tf <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf))
+  writeLines(c("a,b,c", "1,2,3"), tf)
+  con <- file(tf, "rb")
+  res <- vroom(con, show_col_types = FALSE)
+  expect_equal(spec(res)$delim, ",")
+})
+
 test_that("vroom handles files with trailing commas, windows newlines, missing a final newline and not null terminated", {
   f <- tempfile()
   on.exit(unlink(f))

@@ -200,10 +200,19 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
     cpp11::stop("Failed to start streaming: %s", stream_result.error.c_str());
   }
 
-  auto attach_problems = [&reader](cpp11::sexp result) -> cpp11::sexp {
+  // Capture detected dialect (if auto-detected) for spec()$delim
+  auto detected = reader.detected_dialect();
+
+  auto attach_problems = [&reader, &detected](cpp11::sexp result) -> cpp11::sexp {
     const auto& errors = reader.errors();
     if (!errors.empty()) {
       Rf_setAttrib(result, Rf_install("problems"), errors_to_r_problems(errors));
+    }
+    // Attach detected delimiter so R can use it for spec()$delim
+    if (detected.has_value()) {
+      std::string det_delim(1, detected->dialect.delimiter);
+      Rf_setAttrib(result, Rf_install("detected_delim"),
+                   Rf_mkString(det_delim.c_str()));
     }
     return result;
   };

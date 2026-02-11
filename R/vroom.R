@@ -460,6 +460,10 @@ vroom <- function(
     # Remove C++-attached problems (will be re-attached by finalize)
     attr(one, "problems") <- NULL
 
+    # Extract detected delimiter from C++ (for spec()$delim)
+    detected_delim <- attr(one, "detected_delim")
+    attr(one, "detected_delim") <- NULL
+
     # Merge R-side problems from post-processing
     r_probs <- attr(one, ".r_problems")
     attr(one, ".r_problems") <- NULL
@@ -472,7 +476,8 @@ vroom <- function(
       data = one,
       problems = probs,
       resolved_spec = resolved_spec,
-      col_types_int = col_types_int
+      col_types_int = col_types_int,
+      detected_delim = detected_delim
     )
   }
 
@@ -638,37 +643,9 @@ vroom <- function(
   # the full file schema, not just selected columns.
   # Exclude the id column from the spec column names.
   all_col_names <- setdiff(names(out), id)
-  # If delimiter was auto-detected (delim is still NULL), try to infer it
-  # from the column names for the spec attribute.
-  spec_delim <- delim %||% ""
-  if (!nzchar(spec_delim) && length(all_col_names) > 1) {
-    # Try to infer the delimiter from the first input file
-    spec_delim <- tryCatch(
-      {
-        first_input <- file[[1]]
-        if (is.character(first_input) && file.exists(first_input)) {
-          lines <- readLines(first_input, n = 5, warn = FALSE)
-        } else if (is.raw(first_input)) {
-          lines <- strsplit(
-            rawToChar(first_input[seq_len(min(
-              2000,
-              length(first_input)
-            ))]),
-            "\n",
-            fixed = TRUE
-          )[[1]]
-        } else {
-          lines <- character()
-        }
-        if (length(lines) > 0) {
-          guess_delim(lines)
-        } else {
-          ""
-        }
-      },
-      error = function(e) ""
-    )
-  }
+  # Use the delimiter that libvroom actually detected (ground truth from C++),
+  # falling back to the user-supplied delim or empty string.
+  spec_delim <- delim %||% first_result$detected_delim %||% ""
   attr(out, "spec") <- build_libvroom_spec(
     out[all_col_names],
     first_result$resolved_spec,
