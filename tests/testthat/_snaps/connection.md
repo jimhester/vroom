@@ -1,7 +1,7 @@
 # vroom errors when the connection buffer is too small
 
     Code
-      vroom(file(vroom_example("mtcars.csv")), col_types = list())
+      vroom(file(vroom_example("mtcars.csv")), col_types = list(), escape_backslash = TRUE)
     Condition
       Error:
       ! The size of the connection buffer (32) was not large enough

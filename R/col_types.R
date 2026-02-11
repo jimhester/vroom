@@ -433,14 +433,18 @@ vroom_select <- function(x, col_select, id) {
 
 apply_libvroom_col_select <- function(out, col_select, id = NULL) {
   if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
-    all_names <- c(names(out), id)
+    # Build selection pool: data columns first, then id (appended).
+    # This matches legacy vroom_select() which uses c(spec_names, id),
+    # ensuring positional indices refer to file columns, not the
+    # synthesized id column.
+    data_names <- setdiff(names(out), id)
+    select_pool <- c(data_names, id)
     if (inherits(col_select, "quosures")) {
-      vars <- tidyselect::vars_select(all_names, !!!col_select)
+      vars <- tidyselect::vars_select(select_pool, !!!col_select)
     } else {
-      vars <- tidyselect::vars_select(all_names, !!col_select)
+      vars <- tidyselect::vars_select(select_pool, !!col_select)
     }
-    # Match legacy vroom_select(): auto-include the id column even
-    # when the user's col_select expression doesn't mention it.
+    # If id exists and wasn't explicitly selected, prepend it.
     if (!is.null(id) && !id %in% vars) {
       names(id) <- id
       vars <- c(id, vars)
@@ -483,7 +487,12 @@ filter_cols_only_and_skip <- function(
     # cols_only(): keep only named columns
     keep_cols <- names(out) %in% col_type_names
     out <- out[, keep_cols, drop = FALSE]
-  } else if (length(col_types_int) > 0 && !is_cols_only) {
+  } else if (length(col_type_names) > 0 && any(col_types_int == -1L)) {
+    # Named skip (like cols(mpg = col_skip())): drop named skip columns
+    skip_names <- col_type_names[col_types_int == -1L]
+    keep_cols <- !(names(out) %in% skip_names)
+    out <- out[, keep_cols, drop = FALSE]
+  } else if (length(col_types_int) > 0) {
     # Positional skip (compact notation like "i_d"): drop skip columns
     skip_mask <- col_types_int == -1L
     if (any(skip_mask)) {

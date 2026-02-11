@@ -90,10 +90,11 @@ VROOM_FORCE_INLINE uint64_t scan_for_two_chars(const char* data, size_t len, cha
 class SplitFields {
 public:
   VROOM_FORCE_INLINE SplitFields(const char* slice, size_t size, char separator, char quote_char,
-                                 char eol_char)
+                                 char eol_char, char comment_char = '\0')
       : v_(slice), remaining_(size), separator_(separator), finished_(false),
         finished_inside_quote_(false), quote_char_(quote_char), quoting_(quote_char != 0),
-        eol_char_(eol_char), previous_valid_ends_(0) {}
+        eol_char_(eol_char), comment_char_(comment_char), hit_comment_(false),
+        previous_valid_ends_(0) {}
 
   VROOM_FORCE_INLINE bool next(const char*& field_data, size_t& field_len, bool& needs_escaping) {
     if (finished_) {
@@ -107,7 +108,8 @@ public:
 
       needs_escaping = (quoting_ && remaining_ > 0 && v_[0] == quote_char_);
 
-      if (v_[pos] == eol_char_) {
+      if (v_[pos] == eol_char_ || (comment_char_ != '\0' && v_[pos] == comment_char_)) {
+        if (comment_char_ != '\0' && v_[pos] == comment_char_) hit_comment_ = true;
         return finish_eol(field_data, field_len, needs_escaping, pos);
       }
 
@@ -138,7 +140,8 @@ public:
     }
 
     char c = v_[pos];
-    if (c == eol_char_) {
+    if (c == eol_char_ || (comment_char_ != '\0' && c == comment_char_)) {
+      if (comment_char_ != '\0' && c == comment_char_) hit_comment_ = true;
       return finish_eol(field_data, field_len, needs_escaping, pos);
     }
 
@@ -152,6 +155,7 @@ public:
   VROOM_FORCE_INLINE const char* v() const { return v_; }
   VROOM_FORCE_INLINE size_t remaining() const { return remaining_; }
   VROOM_FORCE_INLINE bool finished() const { return finished_; }
+  VROOM_FORCE_INLINE bool hit_comment() const { return hit_comment_; }
 
   // Returns true if the last field consumed was a quoted field that never
   // had its closing quote found (i.e., the data ended inside a quote).
@@ -166,6 +170,8 @@ private:
   char quote_char_;
   bool quoting_;
   char eol_char_;
+  char comment_char_;
+  bool hit_comment_;
   uint64_t previous_valid_ends_;
 
   VROOM_FORCE_INLINE bool eof_eol(char c) const { return c == separator_ || c == eol_char_; }
@@ -208,6 +214,9 @@ private:
       uint64_t quote_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, quote_char_);
 
       uint64_t end_mask = sep_mask | eol_mask;
+      if (comment_char_ != '\0') {
+        end_mask |= detail::scan_for_char(bytes, detail::SIMD_SIZE, comment_char_);
+      }
 
       uint64_t not_in_quote_field = prefix_xorsum_inclusive(quote_mask);
 
@@ -243,7 +252,7 @@ private:
       if (c == quote_char_) {
         in_field = !in_field;
       }
-      if (!in_field && eof_eol(c)) {
+      if (!in_field && (eof_eol(c) || (comment_char_ != '\0' && c == comment_char_))) {
         return total_idx + i;
       }
     }
@@ -259,6 +268,9 @@ private:
 
       uint64_t end_mask =
           detail::scan_for_two_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_);
+      if (comment_char_ != '\0') {
+        end_mask |= detail::scan_for_char(bytes, detail::SIMD_SIZE, comment_char_);
+      }
 
       if (end_mask != 0) {
         size_t pos = VROOM_CTZ64(end_mask);
@@ -281,7 +293,7 @@ private:
     size_t len = remaining_ - total_idx;
 
     for (size_t i = 0; i < len; ++i) {
-      if (eof_eol(bytes[i])) {
+      if (eof_eol(bytes[i]) || (comment_char_ != '\0' && bytes[i] == comment_char_)) {
         return total_idx + i;
       }
     }

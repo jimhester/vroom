@@ -224,6 +224,7 @@ vroom <- function(
     delim <- "\x01"
   }
 
+  is_inline <- inherits(file, "AsIs")
   file <- standardise_path(file)
 
   if (length(file) == 0 || (n_max == 0 & identical(col_names, FALSE))) {
@@ -246,7 +247,8 @@ vroom <- function(
       escape_double,
       escape_backslash,
       locale,
-      comment
+      comment,
+      is_inline
     )
     if (explicit_libvroom && !use_libvroom) {
       cli::cli_warn(
@@ -333,6 +335,10 @@ vroom <- function(
         return("FALLBACK_TO_LEGACY")
       }
 
+      # Extract detected delimiter (from auto-detection) before clearing
+      detected_delim <- attr(one, "detected_delim")
+      attr(one, "detected_delim") <- NULL
+
       # Apply col_names renaming for non-TRUE col_names
       if (is.character(col_names)) {
         names(one) <- make_names(col_names, ncol(one))
@@ -358,7 +364,8 @@ vroom <- function(
       list(
         data = one,
         resolved_spec = resolved_spec,
-        col_types_int = col_types_int
+        col_types_int = col_types_int,
+        detected_delim = detected_delim
       )
     }
 
@@ -390,6 +397,24 @@ vroom <- function(
       # Keep the first result for column name/type info even if 0 rows
       if (is.null(first_result)) {
         first_result <- res
+      } else {
+        # Validate column consistency across files
+        first_names <- names(first_result$data)
+        cur_names <- names(res$data)
+        if (length(first_names) != length(cur_names)) {
+          cli::cli_abort(c(
+            "Files have different number of columns.",
+            i = "First file has {length(first_names)} columns.",
+            i = "File {input} has {length(cur_names)} columns."
+          ))
+        }
+        if (!identical(first_names, cur_names)) {
+          cli::cli_abort(c(
+            "Files have different column names.",
+            i = "First file has columns: {.val {first_names}}.",
+            i = "File {input} has columns: {.val {cur_names}}."
+          ))
+        }
       }
 
       if (nrow(res$data) > 0) {
@@ -449,7 +474,7 @@ vroom <- function(
         first_result$resolved_spec,
         first_result$col_types_int,
         all_col_names,
-        delim = delim %||% ""
+        delim = delim %||% first_result$detected_delim %||% ""
       )
 
       out <- apply_libvroom_col_select(out, col_select, id)
@@ -566,11 +591,14 @@ can_use_libvroom <- function(
   escape_double,
   escape_backslash,
   locale,
-  comment = ""
+  comment = "",
+  is_inline = FALSE
 ) {
-  # Must have an explicit delimiter (libvroom auto-detection doesn't yet
-  # match legacy parser behavior for problems(), spec(), and edge cases)
-  if (is.null(delim)) {
+  # Inline strings (I()) always use legacy parser — standardise_path()
+
+  # writes them to temp files which look like real files, but users expect
+  # legacy behavior (problems(), warnings, spec()) for inline data.
+  if (is_inline) {
     return(FALSE)
   }
 
@@ -624,8 +652,8 @@ can_use_libvroom <- function(
     return(FALSE)
   }
 
-  # No comment character (libvroom handles mid-field comments differently)
-  if (nzchar(comment)) {
+  # libvroom comment is a single char; multi-char comments need legacy parser
+  if (nchar(comment) > 1) {
     return(FALSE)
   }
 

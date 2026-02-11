@@ -93,8 +93,16 @@ test_that("connection reads work with small VROOM_CONNECTION_SIZE via libvroom",
 
 test_that("vroom errors when the connection buffer is too small", {
   withr::local_envvar(c("VROOM_CONNECTION_SIZE" = 32))
+  # Force legacy parser — the small buffer error is specific to the legacy
+
+  # C++ connection handling. libvroom reads connections in R first (via
+  # read_connection_raw) and handles small chunks correctly.
   expect_snapshot(error = TRUE, {
-    vroom(file(vroom_example("mtcars.csv")), col_types = list())
+    vroom(
+      file(vroom_example("mtcars.csv")),
+      col_types = list(),
+      escape_backslash = TRUE
+    )
   })
 })
 

@@ -72,6 +72,15 @@ std::vector<std::string> LineParser::parse_header(const char* data, size_t size)
       }
       headers.push_back(std::move(current_field));
       current_field.clear();
+    } else if (options_.comment != '\0' && c == options_.comment && !in_quote) {
+      // Comment terminates this field and the rest of the line
+      while (!current_field.empty() &&
+             (current_field.back() == ' ' || current_field.back() == '\t')) {
+        current_field.pop_back();
+      }
+      headers.push_back(std::move(current_field));
+      current_field.clear();
+      break;
     } else {
       // Skip leading whitespace if field is empty and not in quote
       if (current_field.empty() && !in_quote && (c == ' ' || c == '\t')) {

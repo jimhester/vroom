@@ -147,7 +147,7 @@ std::pair<size_t, bool> parse_chunk_with_state(
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n');
+    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.comment);
 
     const char* field_data;
     size_t field_len;
@@ -256,6 +256,17 @@ std::pair<size_t, bool> parse_chunk_with_state(
     row_count++;
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
+
+    // If comment was hit mid-field, skip from current position to actual EOL
+    if (iter.hit_comment()) {
+      while (offset < size && data[offset] != '\n' && data[offset] != '\r') offset++;
+      if (offset < size && data[offset] == '\r') {
+        offset++;
+        if (offset < size && data[offset] == '\n') offset++;
+      } else if (offset < size && data[offset] == '\n') {
+        offset++;
+      }
+    }
   }
 
 done_chunk: // Early exit target for should_stop() (FAIL_FAST error mode)
@@ -323,10 +334,9 @@ struct CsvReader::Impl {
     if (detected.success()) {
       options.separator = detected.dialect.delimiter;
       options.quote = detected.dialect.quote_char;
-      // Only override has_header from detection if user didn't explicitly disable it
-      if (options.has_header) {
-        options.has_header = detected.has_header;
-      }
+      // Don't override has_header — the caller (R's col_names parameter)
+      // is authoritative. Auto-detection of has_header is unreliable when
+      // the header row contains numeric-looking names.
       if (detected.dialect.comment_char != '\0') {
         options.comment = detected.dialect.comment_char;
       }
@@ -1301,7 +1311,7 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n');
+    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.comment);
 
     const char* field_data;
     size_t field_len;
@@ -1410,6 +1420,17 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
+
+    // If comment was hit mid-field, skip from current position to actual EOL
+    if (iter.hit_comment()) {
+      while (offset < size && data[offset] != '\n' && data[offset] != '\r') offset++;
+      if (offset < size && data[offset] == '\r') {
+        offset++;
+        if (offset < size && data[offset] == '\n') offset++;
+      } else if (offset < size && data[offset] == '\n') {
+        offset++;
+      }
+    }
 
     // Unclosed quote detection: if the iterator finished inside a quote
     // on the very last row (no more data), report it after the main loop

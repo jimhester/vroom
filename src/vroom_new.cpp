@@ -46,6 +46,10 @@
   libvroom::CsvReader reader(opts);
 
   open_input_source(reader, input);
+
+  // Capture detected dialect (if auto-detection was used) before schema overrides
+  auto detected_dialect = reader.detected_dialect();
+
   apply_schema_overrides(reader, col_types, col_type_names);
 
   // Apply default column type to columns not explicitly typed
@@ -89,6 +93,10 @@
     auto result = empty_tibble_from_schema(schema);
     // Drain any remaining chunks
     while (reader.next_chunk()) {}
+    if (detected_dialect.has_value()) {
+      std::string det_delim(1, detected_dialect->dialect.delimiter);
+      Rf_setAttrib(result, Rf_install("detected_delim"), Rf_mkString(det_delim.c_str()));
+    }
     return result;
   }
 
@@ -276,6 +284,9 @@
         cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
     result.attr("row.names") =
         cpp11::writable::integers({NA_INTEGER, -static_cast<int>(total_rows)});
+    if (detected_dialect.has_value()) {
+      result.attr("detected_delim") = std::string(1, detected_dialect->dialect.delimiter);
+    }
     return result;
   }
 
@@ -310,6 +321,11 @@
     }
   }
 
-  return columns_to_r(merged, schema, total_rows, strings_as_factors,
-                      use_altrep);
+  cpp11::sexp result = columns_to_r(merged, schema, total_rows, strings_as_factors,
+                                    use_altrep);
+  if (detected_dialect.has_value()) {
+    std::string det_delim(1, detected_dialect->dialect.delimiter);
+    Rf_setAttrib(result, Rf_install("detected_delim"), Rf_mkString(det_delim.c_str()));
+  }
+  return result;
 }

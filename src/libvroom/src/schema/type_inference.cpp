@@ -159,6 +159,13 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
 
   // Sample rows
   while (offset < size && rows_sampled < max_rows) {
+    // Skip full-line comments
+    if (options_.comment != '\0' && offset < size && data[offset] == options_.comment) {
+      size_t row_end = finder.find_row_end(data, size, offset);
+      offset = row_end;
+      continue;
+    }
+
     size_t row_end = finder.find_row_end(data, size, offset);
     size_t row_size = row_end - offset;
 
@@ -171,6 +178,7 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
     std::vector<std::string> fields;
     bool in_quote = false;
     std::string current_field;
+    bool hit_comment = false;
 
     for (size_t i = offset; i < row_end; ++i) {
       char c = data[i];
@@ -199,6 +207,16 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
         }
         fields.push_back(std::move(current_field));
         current_field.clear();
+      } else if (options_.comment != '\0' && c == options_.comment && !in_quote) {
+        // Comment terminates this field and the rest of the line
+        while (!current_field.empty() &&
+               (current_field.back() == ' ' || current_field.back() == '\t')) {
+          current_field.pop_back();
+        }
+        fields.push_back(std::move(current_field));
+        current_field.clear();
+        hit_comment = true;
+        break;
       } else {
         if (current_field.empty() && !in_quote && (c == ' ' || c == '\t')) {
           continue;
@@ -207,8 +225,10 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
       }
     }
 
-    // If the line ended without a newline
-    if (!current_field.empty()) {
+    // If the line ended without a newline (and no comment was hit),
+    // push the remaining field. Also push empty trailing fields when
+    // we haven't captured all expected columns (e.g., trailing commas).
+    if (!hit_comment && (!current_field.empty() || fields.size() < n_columns)) {
       while (!current_field.empty() &&
              (current_field.back() == ' ' || current_field.back() == '\t')) {
         current_field.pop_back();
@@ -226,10 +246,12 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
     ++rows_sampled;
   }
 
-  // Convert UNKNOWN to STRING
+  // Convert UNKNOWN to STRING, NA (all-null columns) to BOOL
   for (auto& t : types) {
     if (t == DataType::UNKNOWN) {
       t = DataType::STRING;
+    } else if (t == DataType::NA) {
+      t = DataType::BOOL;
     }
   }
 

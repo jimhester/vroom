@@ -532,6 +532,49 @@ test_that("libvroom handles comment character", {
   )
 })
 
+test_that("libvroom handles mid-field comments", {
+  # Comment truncates field value
+  test_libvroom(
+    "a,b\n1#comment,2\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1, 3), b = c(NA, 4))
+  )
+
+  # Comment after empty field
+  test_libvroom(
+    "a,b\n1,#comment\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1, 3), b = c(NA, 4))
+  )
+
+  # Quoted field with comment char is literal
+
+  test_libvroom(
+    'a,b\n"#literal",2\n3,4\n',
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c("#literal", "3"), b = c(2, 4))
+  )
+
+  # Comment in header
+  test_libvroom(
+    "a#x,b\n1,2\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1L, 3L))
+  )
+
+  # Mixed full-line and mid-field comments
+  test_libvroom(
+    "# full line\na,b\n1,2#mid\n3,4\n",
+    delim = ",",
+    comment = "#",
+    equals = tibble::tibble(a = c(1, 3), b = c(2, 4))
+  )
+})
+
 test_that("libvroom auto-detects delimiter", {
   # CSV auto-detection
   tf <- tempfile(fileext = ".csv")
@@ -541,16 +584,19 @@ test_that("libvroom auto-detects delimiter", {
   writeBin(charToRaw("a,b,c\n1,2,3\n4,5,6\n"), out_con)
   close(out_con)
 
-  result <- vroom(
-    tf,
-    delim = NULL,
-    use_libvroom = TRUE,
-    show_col_types = FALSE
+  expect_no_warning(
+    result <- vroom(
+      tf,
+      delim = NULL,
+      use_libvroom = TRUE,
+      show_col_types = FALSE
+    )
   )
   expect_equal(
     result,
     tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
   )
+  expect_equal(spec(result)$delim, ",")
 
   # TSV auto-detection
   tf2 <- tempfile(fileext = ".tsv")
@@ -560,16 +606,52 @@ test_that("libvroom auto-detects delimiter", {
   writeBin(charToRaw("a\tb\tc\n1\t2\t3\n4\t5\t6\n"), out_con2)
   close(out_con2)
 
-  result2 <- vroom(
-    tf2,
-    delim = NULL,
-    use_libvroom = TRUE,
-    show_col_types = FALSE
+  expect_no_warning(
+    result2 <- vroom(
+      tf2,
+      delim = NULL,
+      use_libvroom = TRUE,
+      show_col_types = FALSE
+    )
   )
   expect_equal(
     result2,
     tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
   )
+  expect_equal(spec(result2)$delim, "\t")
+
+  # Pipe delimiter auto-detection
+  tf3 <- tempfile(fileext = ".csv")
+  on.exit(unlink(tf3), add = TRUE)
+
+  out_con3 <- file(tf3, "wb", encoding = "UTF-8")
+  writeBin(charToRaw("a|b|c\n1|2|3\n4|5|6\n"), out_con3)
+  close(out_con3)
+
+  expect_no_warning(
+    result3 <- vroom(
+      tf3,
+      delim = NULL,
+      use_libvroom = TRUE,
+      show_col_types = FALSE
+    )
+  )
+  expect_equal(
+    result3,
+    tibble::tibble(a = c(1L, 4L), b = c(2L, 5L), c = c(3L, 6L))
+  )
+  expect_equal(spec(result3)$delim, "|")
+})
+
+test_that("libvroom auto-detect: I() inline stays on legacy parser", {
+  # I() without explicit delim should NOT go through libvroom
+  # (it creates temp files, and spec/problems differ)
+  result <- vroom(
+    I("a,b\n1,2\n3,4\n"),
+    show_col_types = FALSE
+  )
+  expect_equal(result$a, c(1, 3))
+  expect_equal(result$b, c(2, 4))
 })
 
 test_that("libvroom handles skip parameter", {
