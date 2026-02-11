@@ -202,7 +202,7 @@ filenames
 vroom(purrr::map(filenames[c(1, 3)], \(x) unz(zip_file, x)))
 #> Rows: 25 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> 
+#> Delimiter: ","
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -228,7 +228,7 @@ file <- "https://raw.githubusercontent.com/tidyverse/vroom/main/inst/extdata/mtc
 vroom(file)
 #> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> 
+#> Delimiter: ","
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -252,7 +252,7 @@ file <- "https://raw.githubusercontent.com/tidyverse/vroom/main/inst/extdata/mtc
 vroom(file)
 #> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> 
+#> Delimiter: ","
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
