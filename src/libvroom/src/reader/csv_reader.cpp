@@ -157,6 +157,10 @@ std::pair<size_t, bool> parse_chunk_with_state(
   const char quote = options.quote;
   const std::string_view sep = options.separator;
   const size_t num_cols = columns.size();
+  // For single-char comments, pass to SplitFields for SIMD-accelerated detection.
+  // Multi-char comments still use the scalar post-field scan below.
+  const char comment_char = (options.comment.size() == 1) ? options.comment[0] : '\0';
+  const bool has_multi_char_comment = options.comment.size() > 1;
 
   while (offset < size) {
     // Skip empty lines (when enabled)
@@ -200,7 +204,8 @@ std::pair<size_t, bool> parse_chunk_with_state(
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash);
+    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash,
+                      comment_char);
 
     const char* field_data;
     size_t field_len;
@@ -225,9 +230,20 @@ std::pair<size_t, bool> parse_chunk_with_state(
         }
       }
 
-      // Inline comment detection: check for comment string in unquoted fields
-      // or after closing quote in quoted fields
-      if (!options.comment.empty()) {
+      // Check if SplitFields detected a comment boundary (single-char fast path)
+      if (iter.hit_comment()) {
+        // Re-trim trailing whitespace from the truncated field
+        if (options.trim_ws) {
+          while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
+            field_len--;
+          }
+        }
+        inline_comment_found = true;
+      }
+
+      // Multi-char inline comment detection: check for comment string in unquoted fields
+      // or after closing quote in quoted fields (only for multi-char comments)
+      if (has_multi_char_comment) {
         const std::string& cmt = options.comment;
         if (!needs_escaping) {
           // Unquoted field: search for comment string within the raw field
@@ -377,6 +393,20 @@ std::pair<size_t, bool> parse_chunk_with_state(
     row_count++;
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
+
+    // When SplitFields stopped at a comment char, skip past the remaining
+    // comment text to the actual end-of-line.
+    if (iter.hit_comment()) {
+      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
+        offset++;
+      }
+      if (offset < size && data[offset] == '\r') {
+        offset++;
+        if (offset < size && data[offset] == '\n') offset++;
+      } else if (offset < size && data[offset] == '\n') {
+        offset++;
+      }
+    }
   }
 
 done_chunk: // Early exit target for should_stop() (FAIL_FAST error mode)
@@ -1458,6 +1488,10 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
   const std::string_view sep = options.separator;
   const size_t num_cols = columns.size();
   const bool check_errors = impl_->error_collector.is_enabled();
+  // For single-char comments, pass to SplitFields for SIMD-accelerated detection.
+  // Multi-char comments still use the scalar post-field scan below.
+  const char comment_char = (options.comment.size() == 1) ? options.comment[0] : '\0';
+  const bool has_multi_char_comment = options.comment.size() > 1;
   // Row number is 1-indexed; row 1 is the header (if present)
   size_t row_number = impl_->options.has_header ? 2 : 1;
 
@@ -1508,7 +1542,8 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash);
+    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash,
+                      comment_char);
 
     const char* field_data;
     size_t field_len;
@@ -1533,9 +1568,20 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
         }
       }
 
-      // Inline comment detection: check for comment string in unquoted fields
-      // or after closing quote in quoted fields
-      if (!impl_->options.comment.empty()) {
+      // Check if SplitFields detected a comment boundary (single-char fast path)
+      if (iter.hit_comment()) {
+        // Re-trim trailing whitespace from the truncated field
+        if (options.trim_ws) {
+          while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
+            field_len--;
+          }
+        }
+        inline_comment_found = true;
+      }
+
+      // Multi-char inline comment detection: check for comment string in unquoted fields
+      // or after closing quote in quoted fields (only for multi-char comments)
+      if (has_multi_char_comment) {
         const std::string& cmt = impl_->options.comment;
         if (!needs_escaping) {
           // Unquoted field: search for comment string within the raw field
@@ -1681,6 +1727,20 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
+
+    // When SplitFields stopped at a comment char, skip past the remaining
+    // comment text to the actual end-of-line.
+    if (iter.hit_comment()) {
+      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
+        offset++;
+      }
+      if (offset < size && data[offset] == '\r') {
+        offset++;
+        if (offset < size && data[offset] == '\n') offset++;
+      } else if (offset < size && data[offset] == '\n') {
+        offset++;
+      }
+    }
 
     // Unclosed quote detection: if the iterator finished inside a quote
     // on the very last row (no more data), report it after the main loop
