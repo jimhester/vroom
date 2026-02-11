@@ -16,3 +16,6 @@ investigations
 .claude/settings.local.json
 .clangd
 .cache
+
+# Work tool temporary files
+.work-review-status
