@@ -191,6 +191,20 @@ test_that("referencing columns by position in col_select works with id column (#
   )
 })
 
+test_that("col_select with mixed positional + named id works correctly", {
+  # Position 2 should be "mpg" (second data column), not "model"
+  # (which would happen if id shifts positional indices)
+  expect_named(
+    vroom(
+      vroom_example("mtcars.csv"),
+      id = "path",
+      col_select = c(2, path),
+      show_col_types = FALSE
+    ),
+    c("mpg", "path")
+  )
+})
+
 test_that("col_select works with col_names = FALSE", {
   res <- vroom(
     I("foo\tbar\n1\t2\n"),

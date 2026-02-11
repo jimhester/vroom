@@ -413,45 +413,24 @@ vroom_enquo <- function(x) {
 
 apply_libvroom_col_select <- function(out, col_select, id = NULL) {
   if (inherits(col_select, "quosures") || !quo_is_null(col_select)) {
-    all_names <- names(out)
+    # Build selection pool: data columns first, then id (appended).
+    # Positional indices (e.g., col_select = 1:3) must reference file
+    # (data) columns, not the synthesized id column which is prepended
+    # to the output. Appending id at the end keeps positional semantics
+    # correct while still making the id column selectable by name.
+    data_names <- setdiff(names(out), id)
+    select_pool <- c(data_names, id)
 
-    # For selection purposes, we need special handling when an id column
-    # is present. Positional indices should reference only the non-id
-    # (data) columns, but the id column should still be selectable by name.
-    if (!is.null(id) && id %in% all_names) {
-      # Build a selection namespace where positional indices map to data
-      # columns only (excluding the id column), but the id column is
-      # still available by name.
-      non_id_names <- setdiff(all_names, id)
-
-      if (inherits(col_select, "quosures")) {
-        vars <- tryCatch(
-          tidyselect::vars_select(non_id_names, !!!col_select),
-          error = function(e) {
-            # Fall back to using all names if column wasn't found
-            tidyselect::vars_select(all_names, !!!col_select)
-          }
-        )
-      } else {
-        vars <- tryCatch(
-          tidyselect::vars_select(non_id_names, !!col_select),
-          error = function(e) {
-            tidyselect::vars_select(all_names, !!col_select)
-          }
-        )
-      }
-
-      # Always include the id column
-      if (!id %in% vars) {
-        names(id) <- id
-        vars <- c(id, vars)
-      }
+    if (inherits(col_select, "quosures")) {
+      vars <- tidyselect::vars_select(select_pool, !!!col_select)
     } else {
-      if (inherits(col_select, "quosures")) {
-        vars <- tidyselect::vars_select(all_names, !!!col_select)
-      } else {
-        vars <- tidyselect::vars_select(all_names, !!col_select)
-      }
+      vars <- tidyselect::vars_select(select_pool, !!col_select)
+    }
+
+    # If id exists and wasn't explicitly selected, prepend it.
+    if (!is.null(id) && !id %in% vars) {
+      names(id) <- id
+      vars <- c(id, vars)
     }
 
     out <- out[vars]
