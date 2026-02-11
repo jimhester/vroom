@@ -484,8 +484,9 @@ filter_cols_only_and_skip <- function(
     inherits(resolved_spec$default, "collector_skip")
 
   if (is_cols_only) {
-    # cols_only(): keep only named columns
-    keep_cols <- names(out) %in% col_type_names
+    # cols_only(): keep only named columns that aren't col_skip()
+    non_skip_names <- col_type_names[col_types_int != -1L]
+    keep_cols <- names(out) %in% non_skip_names
     out <- out[, keep_cols, drop = FALSE]
   } else if (length(col_type_names) > 0 && any(col_types_int == -1L)) {
     # Named skip (like cols(mpg = col_skip())): drop named skip columns

@@ -320,9 +320,8 @@ vroom <- function(
           default_col_type = default_col_type
         ),
         error = function(e) {
-          if (
-            grepl("All data was skipped", conditionMessage(e), fixed = TRUE)
-          ) {
+          msg <- conditionMessage(e)
+          if (identical(msg, "Failed to start streaming: All data was skipped")) {
             NULL
           } else {
             stop(e)
@@ -388,7 +387,9 @@ vroom <- function(
       }
 
       # If skip consumed all data, fall back to legacy parser which can
-      # infer column structure from col_types alone
+      # infer column structure from col_types alone. This intentionally
+      # discards any previously-parsed results and re-reads all files
+      # through the legacy parser.
       if (identical(res, "FALLBACK_TO_LEGACY")) {
         use_libvroom <- FALSE
         break
