@@ -6,12 +6,12 @@
 // we find ALL field boundaries in that block and cache them. Subsequent
 // next() calls extract from the cache without re-scanning.
 
+#include "libvroom/escape_mask.h"
 #include "libvroom/quote_parity.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <string>
 #include <string_view>
 
 // Force inline macro for hot path functions
@@ -52,29 +52,6 @@ namespace libvroom {
 // (defined in src/parser/split_fields_iter.cpp)
 uint64_t scan_for_char_simd(const char* data, size_t len, char c);
 uint64_t scan_for_two_chars_simd(const char* data, size_t len, char c1, char c2);
-uint64_t scan_for_three_chars_simd(const char* data, size_t len, char c1, char c2, char c3);
-
-// Backslash escape state for the simdjson odd/even technique.
-// Tracks whether the next byte is escaped by a trailing backslash from the
-// previous 64-byte block.
-struct EscapeState {
-  uint64_t next_is_escaped = 0;
-};
-
-// Compute which characters are escaped by an unescaped backslash.
-// Uses simdjson's odd/even backslash run technique (4 arithmetic ops per block).
-// Returns a bitmask where bit i is set if data[i] is preceded by an unescaped '\'.
-VROOM_FORCE_INLINE uint64_t compute_escaped_mask(uint64_t backslash, EscapeState& state) {
-  uint64_t potential_escape = backslash & ~state.next_is_escaped;
-  uint64_t maybe_escaped = potential_escape << 1;
-  constexpr uint64_t ODD_BITS = 0xAAAAAAAAAAAAAAAAULL;
-  uint64_t even_series_codes = (maybe_escaped | ODD_BITS) - potential_escape;
-  uint64_t escape_and_terminal = even_series_codes ^ ODD_BITS;
-  uint64_t escaped = escape_and_terminal ^ (backslash | state.next_is_escaped);
-  uint64_t escape = escape_and_terminal & backslash;
-  state.next_is_escaped = escape >> 63;
-  return escaped;
-}
 
 namespace detail {
 
@@ -110,52 +87,35 @@ VROOM_FORCE_INLINE uint64_t scan_for_two_chars(const char* data, size_t len, cha
   return mask;
 }
 
-// Scan for three characters using Highway SIMD
-VROOM_FORCE_INLINE uint64_t scan_for_three_chars(const char* data, size_t len, char c1, char c2, char c3) {
-  if (len >= SIMD_SIZE) {
-    return scan_for_three_chars_simd(data, len, c1, c2, c3);
-  }
-  // Scalar fallback
-  uint64_t mask = 0;
-  for (size_t i = 0; i < len && i < 64; ++i) {
-    if (data[i] == c1 || data[i] == c2 || data[i] == c3) {
-      mask |= (1ULL << i);
-    }
-  }
-  return mask;
-}
-
 } // namespace detail
 
 // Direct port of Polars' SplitFields iterator
 class SplitFields {
 public:
-  // Single-byte separator constructor (SIMD fast path)
   VROOM_FORCE_INLINE SplitFields(const char* slice, size_t size, char separator, char quote_char,
-                                 char eol_char, bool escape_backslash = false,
-                                 char comment_char = '\0')
-      : v_(slice), remaining_(size), separator_(separator), multi_byte_sep_(false), finished_(false),
+                                 char eol_char, bool escape_backslash = false)
+      : v_(slice), remaining_(size), separator_(separator), finished_(false),
         finished_inside_quote_(false), quote_char_(quote_char), quoting_(quote_char != 0),
-        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash),
-        comment_char_(comment_char), hit_comment_(false) {}
+        eol_char_(eol_char), escape_backslash_(escape_backslash), previous_valid_ends_(0),
+        prev_escaped_(0) {}
 
-  // Multi-byte separator constructor (scalar slow path)
   VROOM_FORCE_INLINE SplitFields(const char* slice, size_t size, std::string_view separator,
-                                 char quote_char, char eol_char, bool escape_backslash = false,
-                                 char comment_char = '\0')
+                                 char quote_char, char eol_char, bool escape_backslash = false)
       : v_(slice), remaining_(size), separator_(separator.size() == 1 ? separator[0] : '\0'),
-        multi_byte_sep_(separator.size() > 1), separator_str_(separator), finished_(false),
-        finished_inside_quote_(false), quote_char_(quote_char), quoting_(quote_char != 0),
-        eol_char_(eol_char), previous_valid_ends_(0), escape_backslash_(escape_backslash),
-        comment_char_(comment_char), hit_comment_(false) {}
+        finished_(false), finished_inside_quote_(false), quote_char_(quote_char),
+        quoting_(quote_char != 0), eol_char_(eol_char), escape_backslash_(escape_backslash),
+        previous_valid_ends_(0), prev_escaped_(0), multi_byte_(separator.size() > 1) {
+    if (multi_byte_) {
+      multi_sep_ = separator;
+    }
+  }
 
   VROOM_FORCE_INLINE bool next(const char*& field_data, size_t& field_len, bool& needs_escaping) {
     if (finished_) {
       return false;
     }
 
-    // Multi-byte separator: use scalar-only path
-    if (multi_byte_sep_) {
+    if (multi_byte_) {
       return next_multi_byte(field_data, field_len, needs_escaping);
     }
 
@@ -166,9 +126,7 @@ public:
 
       needs_escaping = (quoting_ && remaining_ > 0 && v_[0] == quote_char_);
 
-      char c = v_[pos];
-      if (c == eol_char_ || (comment_char_ != '\0' && c == comment_char_)) {
-        if (comment_char_ != '\0' && c == comment_char_) hit_comment_ = true;
+      if (v_[pos] == eol_char_) {
         return finish_eol(field_data, field_len, needs_escaping, pos);
       }
 
@@ -199,8 +157,7 @@ public:
     }
 
     char c = v_[pos];
-    if (c == eol_char_ || (comment_char_ != '\0' && c == comment_char_)) {
-      if (comment_char_ != '\0' && c == comment_char_) hit_comment_ = true;
+    if (c == eol_char_) {
       return finish_eol(field_data, field_len, needs_escaping, pos);
     }
 
@@ -219,101 +176,22 @@ public:
   // had its closing quote found (i.e., the data ended inside a quote).
   VROOM_FORCE_INLINE bool finished_inside_quote() const { return finished_inside_quote_; }
 
-  // Returns true if the iterator stopped because it hit a comment character.
-  // The caller should skip to the actual EOL in the raw data.
-  VROOM_FORCE_INLINE bool hit_comment() const { return hit_comment_; }
-
 private:
   const char* v_;
   size_t remaining_;
   char separator_;
-  bool multi_byte_sep_;
-  std::string separator_str_; // Only used when multi_byte_sep_ == true
   bool finished_;
   bool finished_inside_quote_;
   char quote_char_;
   bool quoting_;
   char eol_char_;
-  uint64_t previous_valid_ends_;
   bool escape_backslash_;
-  EscapeState escape_state_;
-  char comment_char_;   // Single-char comment for SIMD fast path ('\0' = disabled)
-  bool hit_comment_;    // Set when iterator stopped at a comment char
+  uint64_t previous_valid_ends_;
+  uint64_t prev_escaped_; // Cross-block state for escape mask computation
+  std::string_view multi_sep_;
+  bool multi_byte_ = false;
 
-  VROOM_FORCE_INLINE bool eof_eol(char c) const {
-    return c == separator_ || c == eol_char_ || (comment_char_ != '\0' && c == comment_char_);
-  }
-
-  // Check if separator matches at position pos in v_
-  VROOM_FORCE_INLINE bool matches_sep_at(size_t pos) const {
-    if (pos + separator_str_.size() > remaining_) return false;
-    return std::memcmp(v_ + pos, separator_str_.data(), separator_str_.size()) == 0;
-  }
-
-  // Scalar-only path for multi-byte separators
-  VROOM_FORCE_INLINE bool next_multi_byte(const char*& field_data, size_t& field_len, bool& needs_escaping) {
-    if (remaining_ == 0) {
-      return finish(field_data, field_len, false);
-    }
-
-    needs_escaping = (quoting_ && v_[0] == quote_char_);
-    bool in_quote = false;
-
-    for (size_t i = 0; i < remaining_; ++i) {
-      char c = v_[i];
-
-      if (escape_backslash_ && c == '\\' && i + 1 < remaining_) {
-        ++i;
-        continue;
-      }
-
-      if (c == quote_char_ && quoting_) {
-        in_quote = !in_quote;
-        continue;
-      }
-
-      if (in_quote) continue;
-
-      // Check for comment char (outside quotes)
-      if (comment_char_ != '\0' && c == comment_char_) {
-        hit_comment_ = true;
-        finished_ = true;
-        field_data = v_;
-        field_len = i;
-        v_ += i + 1;
-        remaining_ -= i + 1;
-        return true;
-      }
-
-      // Check for end-of-line
-      if (c == '\n' || c == '\r') {
-        finished_ = true;
-        field_data = v_;
-        field_len = i;
-        v_ += i + 1;
-        remaining_ -= i + 1;
-        // Handle CRLF
-        if (c == '\r' && remaining_ > 0 && v_[0] == '\n') {
-          v_++;
-          remaining_--;
-        }
-        return true;
-      }
-
-      // Check for multi-byte separator match
-      if (matches_sep_at(i)) {
-        field_data = v_;
-        field_len = i;
-        size_t advance = i + separator_str_.size();
-        v_ += advance;
-        remaining_ -= advance;
-        return true;
-      }
-    }
-
-    // Reached end of data with no separator or EOL found
-    return finish(field_data, field_len, needs_escaping);
-  }
+  VROOM_FORCE_INLINE bool eof_eol(char c) const { return c == separator_ || c == eol_char_; }
 
   VROOM_FORCE_INLINE bool finish_eol(const char*& field_data, size_t& field_len,
                                      bool needs_escaping, size_t pos) {
@@ -342,8 +220,48 @@ private:
     return true;
   }
 
+  VROOM_FORCE_INLINE bool next_multi_byte(const char*& field_data, size_t& field_len,
+                                          bool& needs_escaping) {
+    if (remaining_ == 0) {
+      return finish(field_data, field_len, false);
+    }
+
+    needs_escaping = false;
+    bool in_quote = false;
+    const size_t sep_len = multi_sep_.size();
+
+    if (quoting_ && remaining_ > 0 && v_[0] == quote_char_) {
+      needs_escaping = true;
+    }
+
+    for (size_t i = 0; i < remaining_; ++i) {
+      char c = v_[i];
+      if (c == quote_char_ && quoting_) {
+        if (in_quote && i + 1 < remaining_ && v_[i + 1] == quote_char_) {
+          ++i; // escaped quote
+          continue;
+        }
+        in_quote = !in_quote;
+      }
+      if (!in_quote) {
+        if (c == eol_char_) {
+          return finish_eol(field_data, field_len, needs_escaping, i);
+        }
+        if (i + sep_len <= remaining_ && std::memcmp(v_ + i, multi_sep_.data(), sep_len) == 0) {
+          field_data = v_;
+          field_len = i;
+          v_ += i + sep_len;
+          remaining_ -= i + sep_len;
+          return true;
+        }
+      }
+    }
+    return finish(field_data, field_len, needs_escaping);
+  }
+
   VROOM_FORCE_INLINE size_t scan_quoted_field(bool& not_in_field_previous_iter) {
     size_t total_idx = 0;
+    prev_escaped_ = 0; // Reset escape state for new field scan
 
     while (remaining_ - total_idx > detail::SIMD_SIZE) {
       const char* bytes = v_ + total_idx;
@@ -352,20 +270,16 @@ private:
       uint64_t eol_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, eol_char_);
       uint64_t quote_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, quote_char_);
 
-      uint64_t end_mask = sep_mask | eol_mask;
-      // Comment char outside quotes is also a boundary
-      if (comment_char_ != '\0') {
-        end_mask |= detail::scan_for_char(bytes, detail::SIMD_SIZE, comment_char_);
-      }
-
-      // When backslash escaping is enabled, filter out escaped characters.
-      // Always call compute_escaped_mask to consume carry bit from previous block.
+      uint64_t escaped = 0;
       if (escape_backslash_) {
         uint64_t bs_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, '\\');
-        uint64_t escaped = compute_escaped_mask(bs_mask, escape_state_);
+        auto [esc, escape] = compute_escaped_mask(bs_mask, prev_escaped_);
+        escaped = esc;
+        // Remove escaped quotes from quote mask - they don't toggle quote state
         quote_mask &= ~escaped;
-        end_mask &= ~escaped;
       }
+
+      uint64_t end_mask = (sep_mask | eol_mask) & ~escaped;
 
       uint64_t not_in_quote_field = prefix_xorsum_inclusive(quote_mask);
 
@@ -396,17 +310,34 @@ private:
     const char* bytes = v_ + total_idx;
     size_t len = remaining_ - total_idx;
 
-    for (size_t i = 0; i < len; ++i) {
-      char c = bytes[i];
-      if (escape_backslash_ && c == '\\' && i + 1 < len) {
-        ++i; // Skip escaped character
-        continue;
+    if (escape_backslash_) {
+      size_t i = 0;
+      // If previous SIMD block ended with a backslash, first byte is escaped
+      if (prev_escaped_ != 0 && len > 0) {
+        i = 1; // Skip the escaped character
       }
-      if (c == quote_char_) {
-        in_field = !in_field;
+      for (; i < len; ++i) {
+        char c = bytes[i];
+        if (c == '\\' && i + 1 < len) {
+          ++i; // Skip escaped character
+          continue;
+        }
+        if (c == quote_char_) {
+          in_field = !in_field;
+        }
+        if (!in_field && eof_eol(c)) {
+          return total_idx + i;
+        }
       }
-      if (!in_field && eof_eol(c)) {
-        return total_idx + i;
+    } else {
+      for (size_t i = 0; i < len; ++i) {
+        char c = bytes[i];
+        if (c == quote_char_) {
+          in_field = !in_field;
+        }
+        if (!in_field && eof_eol(c)) {
+          return total_idx + i;
+        }
       }
     }
 
@@ -415,20 +346,18 @@ private:
 
   VROOM_FORCE_INLINE size_t scan_unquoted_field() {
     size_t total_idx = 0;
+    uint64_t prev_esc = 0;
 
     while (remaining_ - total_idx > detail::SIMD_SIZE) {
       const char* bytes = v_ + total_idx;
 
-      // Use three-char SIMD scan when comment char is configured, else two-char
-      uint64_t end_mask = (comment_char_ != '\0')
-          ? detail::scan_for_three_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_, comment_char_)
-          : detail::scan_for_two_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_);
+      uint64_t end_mask =
+          detail::scan_for_two_chars(bytes, detail::SIMD_SIZE, separator_, eol_char_);
 
-      // When backslash escaping is enabled, filter out escaped characters.
-      // Always call compute_escaped_mask to consume carry bit from previous block.
       if (escape_backslash_) {
         uint64_t bs_mask = detail::scan_for_char(bytes, detail::SIMD_SIZE, '\\');
-        uint64_t escaped = compute_escaped_mask(bs_mask, escape_state_);
+        auto [escaped, escape] = compute_escaped_mask(bs_mask, prev_esc);
+        // prev_esc is already updated by compute_escaped_mask via reference
         end_mask &= ~escaped;
       }
 
@@ -448,17 +377,30 @@ private:
       }
     }
 
-    // Scalar fallback (eof_eol already includes comment_char_ check)
+    // Scalar fallback
     const char* bytes = v_ + total_idx;
     size_t len = remaining_ - total_idx;
 
-    for (size_t i = 0; i < len; ++i) {
-      if (escape_backslash_ && bytes[i] == '\\' && i + 1 < len) {
-        ++i; // Skip escaped character
-        continue;
+    if (escape_backslash_) {
+      size_t i = 0;
+      // If previous SIMD block ended with a backslash, first byte is escaped
+      if (prev_esc != 0 && len > 0) {
+        i = 1; // Skip the escaped character
       }
-      if (eof_eol(bytes[i])) {
-        return total_idx + i;
+      for (; i < len; ++i) {
+        if (bytes[i] == '\\' && i + 1 < len) {
+          ++i; // Skip escaped character
+          continue;
+        }
+        if (eof_eol(bytes[i])) {
+          return total_idx + i;
+        }
+      }
+    } else {
+      for (size_t i = 0; i < len; ++i) {
+        if (eof_eol(bytes[i])) {
+          return total_idx + i;
+        }
       }
     }
 

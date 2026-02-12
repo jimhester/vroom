@@ -21,6 +21,7 @@
     const cpp11::strings& col_type_names) {
 
   libvroom::FwfOptions opts;
+  opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
   opts.col_starts = col_starts;
   opts.col_ends = col_ends;
   for (R_xlen_t i = 0; i < col_names.size(); ++i) {

@@ -1,5 +1,6 @@
 #include "libvroom/arrow_column_builder.h"
 #include "libvroom/cache.h"
+#include "libvroom/comment_util.h"
 #include "libvroom/dialect.h"
 #include "libvroom/encoding.h"
 #include "libvroom/error.h"
@@ -18,42 +19,6 @@
 #include <vector>
 
 namespace libvroom {
-
-// Check if data at the given position starts with the comment string.
-static bool starts_with_comment(const char* data, size_t remaining, const std::string& comment) {
-  if (comment.empty() || remaining < comment.size()) return false;
-  return std::memcmp(data, comment.data(), comment.size()) == 0;
-}
-
-// Map DataType to human-readable label for error messages
-static const char* type_label_for(DataType type) {
-  switch (type) {
-  case DataType::INT32:     return "an integer";
-  case DataType::INT64:     return "an integer";
-  case DataType::FLOAT64:   return "a double";
-  case DataType::BOOL:      return "a logical";
-  case DataType::DATE:      return "date in ISO8601";
-  case DataType::TIMESTAMP: return "date in ISO8601";
-  case DataType::TIME:      return "time in ISO8601";
-  default:                  return "";
-  }
-}
-
-// Configure error reporting fields on FastArrowContext vector
-static void configure_error_contexts(
-    std::vector<FastArrowContext>& fast_contexts,
-    const std::vector<std::unique_ptr<ArrowColumnBuilder>>& columns,
-    ErrorCollector* error_collector,
-    size_t* row_number_ptr,
-    size_t base_row) {
-  for (size_t i = 0; i < fast_contexts.size(); ++i) {
-    fast_contexts[i].error_collector = error_collector;
-    fast_contexts[i].row_number_ptr = row_number_ptr;
-    fast_contexts[i].base_row = base_row;
-    fast_contexts[i].col_index = i + 1;
-    fast_contexts[i].type_label = type_label_for(columns[i]->type());
-  }
-}
 
 // Structure to hold dual-state analysis results (lightweight, no parsing)
 struct ChunkAnalysisResult {
@@ -79,7 +44,7 @@ std::pair<size_t, bool> parse_chunk_with_state(
     const char* data, size_t size, const CsvOptions& options, const NullChecker& null_checker,
     std::vector<std::unique_ptr<ArrowColumnBuilder>>& columns, bool start_inside_quote,
     ErrorCollector* error_collector = nullptr, size_t base_byte_offset = 0,
-    size_t base_line_number = 0) {
+    const std::vector<ColumnSchema>* schema = nullptr) {
   if (size == 0 || columns.empty()) {
     return {0, start_inside_quote};
   }
@@ -88,20 +53,30 @@ std::pair<size_t, bool> parse_chunk_with_state(
   std::vector<FastArrowContext> fast_contexts;
   fast_contexts.reserve(columns.size());
   for (auto& col : columns) {
-    auto ctx = col->create_context();
-    ctx.decimal_mark = options.decimal_mark;
-    fast_contexts.push_back(ctx);
+    fast_contexts.push_back(col->create_context());
+  }
+  // Thread parsing options to contexts
+  for (auto& fc : fast_contexts) {
+    fc.decimal_mark = options.decimal_mark;
+  }
+
+  // Wire up type coercion error reporting when error collection and schema are available.
+  // Row number is left as nullptr (reports 0) in the multi-threaded path, consistent
+  // with structural errors (NULL_BYTE, QUOTE_IN_UNQUOTED_FIELD, etc.) which also use 0.
+  // Byte offset is set per-field before each append call below.
+  if (error_collector && schema) {
+    for (size_t i = 0; i < fast_contexts.size(); ++i) {
+      fast_contexts[i].error_collector = error_collector;
+      fast_contexts[i].error_col_index = i;
+      fast_contexts[i].error_col_name = (*schema)[i].name.c_str();
+      fast_contexts[i].error_expected_type = (*schema)[i].type;
+    }
   }
 
   bool in_quote = start_inside_quote;
   size_t offset = 0;
   size_t row_count = 0;
   const bool check_errors = error_collector != nullptr;
-
-  // Wire up error reporting in fast_contexts
-  if (check_errors) {
-    configure_error_contexts(fast_contexts, columns, error_collector, &row_count, base_line_number);
-  }
 
   // If we start inside a quote, we need to find where the quote ends
   // and skip the partial field
@@ -110,12 +85,12 @@ std::pair<size_t, bool> parse_chunk_with_state(
     while (offset < size) {
       char c = data[offset];
       if (options.escape_backslash && c == '\\' && offset + 1 < size) {
-        offset += 2;
+        offset += 2; // Skip backslash + escaped char
         continue;
       }
       if (c == options.quote) {
-        // Check for escaped quote
-        if (offset + 1 < size && data[offset + 1] == options.quote) {
+        // In backslash mode, no doubled-quote check needed
+        if (!options.escape_backslash && offset + 1 < size && data[offset + 1] == options.quote) {
           offset += 2;
           continue;
         }
@@ -135,7 +110,8 @@ std::pair<size_t, bool> parse_chunk_with_state(
         continue;
       }
       if (c == options.quote) {
-        if (in_quote && offset + 1 < size && data[offset + 1] == options.quote) {
+        if (!options.escape_backslash && in_quote && offset + 1 < size &&
+            data[offset + 1] == options.quote) {
           offset += 2;
           continue;
         }
@@ -155,12 +131,9 @@ std::pair<size_t, bool> parse_chunk_with_state(
   // Now parse complete rows using Polars-style SplitFields iterator
   // Key optimization: no separate find_row_end call - iterator handles EOL
   const char quote = options.quote;
-  const std::string_view sep = options.separator;
+  static const std::string default_sep(",");
+  const std::string& sep = options.separator.empty() ? default_sep : options.separator;
   const size_t num_cols = columns.size();
-  // For single-char comments, pass to SplitFields for SIMD-accelerated detection.
-  // Multi-char comments still use the scalar post-field scan below.
-  const char comment_char = (options.comment.size() == 1) ? options.comment[0] : '\0';
-  const bool has_multi_char_comment = options.comment.size() > 1;
 
   while (offset < size) {
     // Skip empty lines (when enabled)
@@ -187,31 +160,20 @@ std::pair<size_t, bool> parse_chunk_with_state(
 
     // Skip comment lines (handle \n, \r\n, and bare \r)
     if (starts_with_comment(data + offset, size - offset, options.comment)) {
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') {
-          offset++; // CRLF
-        }
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
+      offset = skip_to_next_line(data, size, offset);
       continue;
     }
 
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash,
-                      comment_char);
+    SplitFields iter(data + offset, start_remaining, std::string_view(sep), quote, '\n',
+                     options.escape_backslash);
 
     const char* field_data;
     size_t field_len;
     bool needs_escaping;
     size_t col_idx = 0;
-    bool inline_comment_found = false;
 
     while (iter.next(field_data, field_len, needs_escaping)) {
       // Strip trailing \r if present
@@ -219,90 +181,26 @@ std::pair<size_t, bool> parse_chunk_with_state(
         field_len--;
       }
 
-      // Trim whitespace if enabled.
+      // Trim whitespace if enabled
       if (options.trim_ws) {
         while (field_len > 0 && (field_data[0] == ' ' || field_data[0] == '\t')) {
           field_data++;
           field_len--;
         }
-        while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
+        while (field_len > 0 &&
+               (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
           field_len--;
-        }
-      }
-
-      // Check if SplitFields detected a comment boundary (single-char fast path)
-      if (iter.hit_comment()) {
-        // Re-trim trailing whitespace from the truncated field
-        if (options.trim_ws) {
-          while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
-            field_len--;
-          }
-        }
-        inline_comment_found = true;
-      }
-
-      // Multi-char inline comment detection: check for comment string in unquoted fields
-      // or after closing quote in quoted fields (only for multi-char comments)
-      if (has_multi_char_comment) {
-        const std::string& cmt = options.comment;
-        if (!needs_escaping) {
-          // Unquoted field: search for comment string within the raw field
-          // When escape_backslash is enabled, skip past backslash-escaped characters
-          for (size_t ci = 0; ci + cmt.size() <= field_len; ++ci) {
-            if (options.escape_backslash && field_data[ci] == '\\' && ci + 1 < field_len) {
-              ci++; // Skip past escaped character
-              continue;
-            }
-            if (std::memcmp(field_data + ci, cmt.data(), cmt.size()) == 0) {
-              // Truncate field at comment position
-              field_len = ci;
-              // Re-trim trailing whitespace after truncation
-              if (options.trim_ws) {
-                while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
-                  field_len--;
-                }
-              }
-              inline_comment_found = true;
-              break;
-            }
-          }
-        } else {
-          // Quoted field: check if comment appears right after closing quote
-          // The raw field includes quotes, e.g. "value"#comment
-          // Find the closing quote position
-          if (field_len >= 2 && field_data[0] == quote) {
-            // Find the actual closing quote (handle doubled quotes)
-            size_t pos = 1;
-            while (pos < field_len) {
-              if (options.escape_backslash && field_data[pos] == '\\' && pos + 1 < field_len) {
-                pos += 2; // Skip backslash-escaped character
-                continue;
-              }
-              if (field_data[pos] == quote) {
-                if (pos + 1 < field_len && field_data[pos + 1] == quote) {
-                  pos += 2; // Skip doubled quote
-                } else {
-                  // This is the closing quote
-                  if (pos + 1 + cmt.size() <= field_len &&
-                      std::memcmp(field_data + pos + 1, cmt.data(), cmt.size()) == 0) {
-                    // Truncate: keep only up to and including the closing quote
-                    field_len = pos + 1;
-                    inline_comment_found = true;
-                  }
-                  break;
-                }
-              } else {
-                pos++;
-              }
-            }
-          }
         }
       }
 
       std::string_view field_view(field_data, field_len);
 
       // Error detection within fields
+      // Note: row number is 0 in multi-threaded path because computing absolute
+      // row offsets per chunk would require tracking the cumulative row count from
+      // all preceding chunks, which isn't available during parallel parsing.
       if (check_errors) [[unlikely]] {
+        // Null byte detection
         if (std::memchr(field_data, '\0', field_len)) {
           for (size_t i = 0; i < field_len; ++i) {
             if (field_data[i] == '\0') {
@@ -315,6 +213,7 @@ std::pair<size_t, bool> parse_chunk_with_state(
           }
         }
 
+        // Quote in unquoted field
         if (!needs_escaping && field_len > 0 && std::memchr(field_data, quote, field_len)) {
           size_t byte_off = base_byte_offset + static_cast<size_t>(field_data - data);
           error_collector->add_error(ErrorCode::QUOTE_IN_UNQUOTED_FIELD, ErrorSeverity::RECOVERABLE,
@@ -326,53 +225,58 @@ std::pair<size_t, bool> parse_chunk_with_state(
 
       if (col_idx >= num_cols) {
         col_idx++;
-        if (inline_comment_found) break;
         continue;
       }
 
       if (null_checker.is_null(field_view)) {
+        // Devirtualized append_null call
         fast_contexts[col_idx].append_null();
-      } else if (options.escape_backslash) {
-        // Backslash escape mode: strip outer quotes if needed, then unescape backslashes
-        if (needs_escaping && field_len >= 2 &&
-            field_data[0] == quote && field_data[field_len - 1] == quote) {
-          field_view = std::string_view(field_data + 1, field_len - 2);
-        }
-        // Fast path: only allocate if backslash is present
-        if (std::memchr(field_view.data(), '\\', field_view.size())) {
-          std::string unescaped = unescape_backslash(field_view);
-          fast_contexts[col_idx].append(unescaped);
-        } else {
-          fast_contexts[col_idx].append(field_view);
-        }
       } else if (needs_escaping) {
         // Strip outer quotes
         if (field_len >= 2 && field_data[0] == quote && field_data[field_len - 1] == quote) {
           field_view = std::string_view(field_data + 1, field_len - 2);
         }
-        bool has_invalid_escape = false;
-        std::string unescaped =
-            unescape_quotes(field_view, quote, check_errors ? &has_invalid_escape : nullptr);
+        // Set byte offset for type coercion error reporting
+        fast_contexts[col_idx].error_byte_offset =
+            base_byte_offset + static_cast<size_t>(field_data - data);
+        if (options.escape_backslash) {
+          std::string unescaped = unescape_backslash(field_view, quote);
+          fast_contexts[col_idx].append(unescaped);
+        } else {
+          bool has_invalid_escape = false;
+          std::string unescaped =
+              unescape_quotes(field_view, quote, check_errors ? &has_invalid_escape : nullptr);
 
-        if (has_invalid_escape) [[unlikely]] {
-          size_t byte_off = base_byte_offset + static_cast<size_t>(field_data - data);
-          error_collector->add_error(ErrorCode::INVALID_QUOTE_ESCAPE, ErrorSeverity::RECOVERABLE, 0,
-                                     col_idx + 1, byte_off, "Invalid quote escape sequence");
-          if (error_collector->should_stop())
-            goto done_chunk;
+          // Invalid quote escape detection
+          if (has_invalid_escape) [[unlikely]] {
+            size_t byte_off = base_byte_offset + static_cast<size_t>(field_data - data);
+            error_collector->add_error(ErrorCode::INVALID_QUOTE_ESCAPE, ErrorSeverity::RECOVERABLE,
+                                       0, col_idx + 1, byte_off, "Invalid quote escape sequence");
+            if (error_collector->should_stop())
+              goto done_chunk;
+          }
+
+          // Devirtualized append call
+          fast_contexts[col_idx].append(unescaped);
         }
-
-        fast_contexts[col_idx].append(unescaped);
+        if (check_errors && error_collector->should_stop()) [[unlikely]]
+          goto done_chunk;
       } else {
-        fast_contexts[col_idx].append(field_view);
+        // Set byte offset for type coercion error reporting
+        fast_contexts[col_idx].error_byte_offset =
+            base_byte_offset + static_cast<size_t>(field_data - data);
+        // Unescape backslash sequences in unquoted fields when enabled
+        if (options.escape_backslash && field_view.find('\\') != std::string_view::npos) {
+          std::string unescaped = unescape_backslash(field_view, quote);
+          fast_contexts[col_idx].append(unescaped);
+        } else {
+          // Devirtualized append call
+          fast_contexts[col_idx].append(field_view);
+        }
+        if (check_errors && error_collector->should_stop()) [[unlikely]]
+          goto done_chunk;
       }
       col_idx++;
-
-      // If inline comment was found, drain remaining fields from iterator and stop
-      if (inline_comment_found) {
-        while (iter.next(field_data, field_len, needs_escaping)) {}
-        break;
-      }
     }
 
     // Error: inconsistent field count
@@ -393,46 +297,12 @@ std::pair<size_t, bool> parse_chunk_with_state(
     row_count++;
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
-
-    // When SplitFields stopped at a comment char, skip past the remaining
-    // comment text to the actual end-of-line.
-    if (iter.hit_comment()) {
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') offset++;
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
-    }
   }
 
 done_chunk: // Early exit target for should_stop() (FAIL_FAST error mode)
   // Note: ending quote state is already computed during the analysis phase
   // so we return false here since the caller ignores it anyway
   return {row_count, false};
-}
-
-// Create the appropriate builder for a column, using format-aware builders when
-// a FormatParser is available for date/time types. This ensures the FormatParser's
-// more flexible parsing (e.g. compact ISO8601) is used even with empty format strings.
-static std::unique_ptr<ArrowColumnBuilder> create_builder_for_schema(
-    const ColumnSchema& schema, const FormatParser* parser) {
-  if (parser) {
-    switch (schema.type) {
-    case DataType::DATE:
-      return ArrowColumnBuilder::create_date_formatted(parser, &schema.format);
-    case DataType::TIMESTAMP:
-      return ArrowColumnBuilder::create_timestamp_formatted(parser, &schema.format);
-    case DataType::TIME:
-      return ArrowColumnBuilder::create_time_formatted(parser, &schema.format);
-    default:
-      break;
-    }
-  }
-  return ArrowColumnBuilder::create(schema.type);
 }
 
 struct CsvReader::Impl {
@@ -450,7 +320,7 @@ struct CsvReader::Impl {
   std::string file_path;                                  // Stored from open() for caching
   EncodingResult detected_encoding;                       // Character encoding detection result
   std::optional<DetectionResult> detected_dialect_result; // From DialectDetector
-  std::unique_ptr<FormatParser> format_parser;            // For format-string datetime parsing
+  FormatLocale format_locale = FormatLocale::english();
 
   // Streaming state
   std::unique_ptr<ParsedChunkQueue> streaming_queue;
@@ -483,7 +353,7 @@ struct CsvReader::Impl {
     }
   }
 
-  // Auto-detect dialect if separator is empty (sentinel for auto-detect).
+  // Auto-detect dialect if separator is the sentinel value ('\0').
   // Must be called after encoding detection/transcoding sets data_ptr/data_size.
   void auto_detect_dialect() {
     if (!options.separator.empty())
@@ -493,7 +363,7 @@ struct CsvReader::Impl {
     auto detected = detector.detect(reinterpret_cast<const uint8_t*>(data_ptr), data_size);
 
     if (detected.success()) {
-      options.separator = detected.dialect.delimiter;
+      options.separator = std::string(1, detected.dialect.delimiter);
       options.quote = detected.dialect.quote_char;
       // Only override has_header from detection if user didn't explicitly disable it
       if (options.has_header) {
@@ -505,83 +375,38 @@ struct CsvReader::Impl {
       detected_dialect_result = detected;
     } else {
       // Fall back to comma if detection fails
-      options.separator = ',';
+      options.separator = ",";
     }
   }
 };
 
-// Skip leading blank/whitespace-only lines and comment lines before the header.
-// A blank line contains only whitespace (space, tab) and a newline.
-// A comment line has optional leading whitespace followed by the comment string.
-// This matches the legacy vroom behavior in find_first_line() / is_blank_or_comment_line().
-static size_t skip_leading_blank_and_comment_lines(
-    const char* data, size_t size, const std::string& comment, bool skip_empty_rows) {
-  if (size == 0) return 0;
-
-  size_t offset = 0;
-  while (offset < size) {
-    size_t line_start = offset;
-
-    // Skip leading whitespace on this line
-    while (offset < size && (data[offset] == ' ' || data[offset] == '\t')) {
-      offset++;
+// Create a column builder, using format-aware parsing if format string is specified
+static std::unique_ptr<ArrowColumnBuilder> create_builder_for_schema(const ColumnSchema& col_schema,
+                                                                     const FormatLocale& locale) {
+  if (!col_schema.format.empty()) {
+    auto parser = std::make_shared<const FormatParser>(col_schema.format, locale);
+    switch (col_schema.type) {
+    case DataType::DATE:
+      return ArrowColumnBuilder::create_date(std::move(parser));
+    case DataType::TIMESTAMP:
+      return ArrowColumnBuilder::create_timestamp(std::move(parser));
+    case DataType::TIME:
+      return ArrowColumnBuilder::create_time(std::move(parser));
+    default:
+      break;
     }
-
-    if (offset >= size) {
-      // Reached end of data while scanning whitespace
-      // If skip_empty_rows is false, rewind — this isn't a blank "line" to skip
-      return skip_empty_rows ? offset : line_start;
-    }
-
-    bool is_blank = (data[offset] == '\n' || data[offset] == '\r');
-    bool is_comment = starts_with_comment(data + offset, size - offset, comment);
-
-    if (is_blank && skip_empty_rows) {
-      // Whitespace-only line — skip past line ending
-      if (data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') offset++;
-      } else {
-        offset++;
-      }
-      continue;
-    }
-
-    if (is_comment) {
-      // Comment line — skip to end of line
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') offset++;
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
-      continue;
-    }
-
-    // Non-blank, non-comment line — stop; rewind to line_start
-    // so the header parser sees the full line including any leading whitespace
-    return line_start;
   }
-  return offset;
+  return ArrowColumnBuilder::create(col_schema.type);
 }
 
-// Skip N lines (for the skip option). Returns offset past skipped lines.
+// Skip N lines unconditionally. Returns offset past the skipped lines.
 static size_t skip_n_lines(const char* data, size_t size, size_t n) {
-  if (n == 0 || size == 0) {
-    return 0;
-  }
-
   size_t offset = 0;
   size_t lines_skipped = 0;
   while (offset < size && lines_skipped < n) {
-    // Scan to end of line
     while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
       offset++;
     }
-    // Advance past line ending
     if (offset < size && data[offset] == '\r') {
       offset++;
       if (offset < size && data[offset] == '\n') {
@@ -591,6 +416,27 @@ static size_t skip_n_lines(const char* data, size_t size, size_t n) {
       offset++;
     }
     lines_skipped++;
+  }
+  return offset;
+}
+
+// Skip leading comment lines in the data. Returns offset past all leading comment lines.
+// A comment line starts with the comment string (at column 0) and ends at newline.
+static size_t skip_leading_comment_lines(const char* data, size_t size,
+                                         const std::string& comment) {
+  if (comment.empty() || size == 0) {
+    return 0;
+  }
+
+  size_t offset = 0;
+  while (offset < size) {
+    // Check if current line starts with comment string
+    if (!starts_with_comment(data + offset, size - offset, comment)) {
+      break; // Not a comment line, stop
+    }
+
+    // Skip to end of this comment line
+    offset = skip_to_next_line(data, size, offset);
   }
   return offset;
 }
@@ -650,34 +496,56 @@ Result<bool> CsvReader::open(const std::string& path) {
     }
   }
 
-  // Skip N initial lines before dialect detection so auto-detection
-  // analyzes the actual CSV data, not skipped metadata lines.
+  // Skip N lines before processing (before dialect detection and header)
   if (impl_->options.skip > 0) {
-    size_t line_skip = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
-    impl_->data_ptr += line_skip;
-    impl_->data_size -= line_skip;
+    size_t skip_offset = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
+    impl_->data_ptr += skip_offset;
+    impl_->data_size -= skip_offset;
     if (impl_->data_size == 0) {
-      return Result<bool>::failure("All data was skipped");
+      return Result<bool>::failure("All data skipped");
+    }
+  }
+
+  // Skip leading empty/whitespace-only lines and comment lines before dialect detection.
+  // When skip_empty_rows is true, skip both empty lines and comment lines (interleaved).
+  // Otherwise, only skip leading comment lines.
+  if (impl_->options.skip_empty_rows) {
+    size_t skip = skip_leading_empty_and_comment_lines(impl_->data_ptr, impl_->data_size,
+                                                       impl_->options.comment);
+    if (skip > 0) {
+      impl_->data_ptr += skip;
+      impl_->data_size -= skip;
+      if (impl_->data_size == 0) {
+        return Result<bool>::failure("All data skipped");
+      }
+    }
+  } else if (!impl_->options.comment.empty()) {
+    size_t skip =
+        skip_leading_comment_lines(impl_->data_ptr, impl_->data_size, impl_->options.comment);
+    if (skip > 0) {
+      impl_->data_ptr += skip;
+      impl_->data_size -= skip;
+      if (impl_->data_size == 0) {
+        return Result<bool>::failure("File contains only comment lines");
+      }
     }
   }
 
   impl_->auto_detect_dialect();
 
+  // Validate decimal_mark doesn't conflict with separator
+  if (impl_->options.separator.size() == 1 &&
+      impl_->options.decimal_mark == impl_->options.separator[0]) {
+    return Result<bool>::failure("decimal_mark and separator cannot be the same character ('" +
+                                 std::string(1, impl_->options.decimal_mark) + "')");
+  }
+
   const char* data = impl_->data_ptr;
   size_t size = impl_->data_size;
 
-  ChunkFinder finder(impl_->options.separator, impl_->options.quote, impl_->options.escape_backslash);
+  ChunkFinder finder(impl_->options.separator.empty() ? ',' : impl_->options.separator[0],
+                     impl_->options.quote, impl_->options.escape_backslash);
   LineParser parser(impl_->options);
-
-  // Skip leading blank/whitespace-only lines and comment lines before header
-  size_t comment_skip = skip_leading_blank_and_comment_lines(
-      data, size, impl_->options.comment, impl_->options.skip_empty_rows);
-  if (comment_skip > 0) {
-    impl_->data_ptr += comment_skip;
-    impl_->data_size -= comment_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-  }
 
   // Parse header if present
   if (impl_->options.has_header) {
@@ -722,29 +590,38 @@ Result<bool> CsvReader::open(const std::string& path) {
     // No header - count columns from first row
     size_t first_row_end = finder.find_row_end(data, size, 0);
 
-    // Count separators in first row
-    const auto& sep = impl_->options.separator;
-    auto matches_sep_at = [&](size_t pos) -> bool {
-      if (pos + sep.size() > first_row_end) return false;
-      return std::memcmp(data + pos, sep.data(), sep.size()) == 0;
-    };
-    bool in_quote = false;
-    size_t col_count = 1;
-    for (size_t i = 0; i < first_row_end; ++i) {
-      char c = data[i];
-      if (impl_->options.escape_backslash && c == '\\' && i + 1 < first_row_end) {
-        ++i;
-        continue;
-      }
-      if (c == impl_->options.quote) {
-        if (in_quote && i + 1 < first_row_end && data[i + 1] == impl_->options.quote) {
-          ++i;
-        } else {
-          in_quote = !in_quote;
+    size_t col_count;
+    if (impl_->options.separator.size() > 1) {
+      // Multi-byte separator: use SplitFields to count fields
+      SplitFields iter(data, first_row_end, std::string_view(impl_->options.separator),
+                       impl_->options.quote, '\n', impl_->options.escape_backslash);
+      const char* fd;
+      size_t fl;
+      bool ne;
+      col_count = 0;
+      while (iter.next(fd, fl, ne))
+        col_count++;
+    } else {
+      // Count separators in first row (single-byte path)
+      bool in_quote = false;
+      col_count = 1;
+      for (size_t i = 0; i < first_row_end; ++i) {
+        char c = data[i];
+        if (impl_->options.escape_backslash && c == '\\' && i + 1 < first_row_end) {
+          ++i; // Skip escaped character
+          continue;
         }
-      } else if (!in_quote && matches_sep_at(i)) {
-        ++col_count;
-        i += sep.size() - 1; // Loop will ++i
+        if (c == impl_->options.quote) {
+          if (!impl_->options.escape_backslash && in_quote && i + 1 < first_row_end &&
+              data[i + 1] == impl_->options.quote) {
+            ++i;
+          } else {
+            in_quote = !in_quote;
+          }
+        } else if (!impl_->options.separator.empty() && c == impl_->options.separator[0] &&
+                   !in_quote) {
+          ++col_count;
+        }
       }
     }
 
@@ -825,35 +702,55 @@ Result<bool> CsvReader::open_from_buffer(AlignedBuffer buffer) {
     }
   }
 
-  // Skip N initial lines before dialect detection so auto-detection
-  // analyzes the actual CSV data, not skipped metadata lines.
+  // Skip N lines before processing (before dialect detection and header)
   if (impl_->options.skip > 0) {
-    size_t line_skip = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
-    impl_->data_ptr += line_skip;
-    impl_->data_size -= line_skip;
+    size_t skip_offset = skip_n_lines(impl_->data_ptr, impl_->data_size, impl_->options.skip);
+    impl_->data_ptr += skip_offset;
+    impl_->data_size -= skip_offset;
     if (impl_->data_size == 0) {
-      return Result<bool>::failure("All data was skipped");
+      return Result<bool>::failure("All data skipped");
+    }
+  }
+
+  // Skip leading empty/whitespace-only lines and comment lines before dialect detection
+  if (impl_->options.skip_empty_rows) {
+    size_t skip = skip_leading_empty_and_comment_lines(impl_->data_ptr, impl_->data_size,
+                                                       impl_->options.comment);
+    if (skip > 0) {
+      impl_->data_ptr += skip;
+      impl_->data_size -= skip;
+      if (impl_->data_size == 0) {
+        return Result<bool>::failure("All data skipped");
+      }
+    }
+  } else if (!impl_->options.comment.empty()) {
+    size_t skip =
+        skip_leading_comment_lines(impl_->data_ptr, impl_->data_size, impl_->options.comment);
+    if (skip > 0) {
+      impl_->data_ptr += skip;
+      impl_->data_size -= skip;
+      if (impl_->data_size == 0) {
+        return Result<bool>::failure("File contains only comment lines");
+      }
     }
   }
 
   // Auto-detect dialect if separator is the sentinel value
   impl_->auto_detect_dialect();
 
+  // Validate decimal_mark doesn't conflict with separator
+  if (impl_->options.separator.size() == 1 &&
+      impl_->options.decimal_mark == impl_->options.separator[0]) {
+    return Result<bool>::failure("decimal_mark and separator cannot be the same character ('" +
+                                 std::string(1, impl_->options.decimal_mark) + "')");
+  }
+
   const char* data = impl_->data_ptr;
   size_t size = impl_->data_size;
 
-  ChunkFinder finder(impl_->options.separator, impl_->options.quote, impl_->options.escape_backslash);
+  ChunkFinder finder(impl_->options.separator.empty() ? ',' : impl_->options.separator[0],
+                     impl_->options.quote, impl_->options.escape_backslash);
   LineParser parser(impl_->options);
-
-  // Skip leading blank/whitespace-only lines and comment lines before header
-  size_t comment_skip = skip_leading_blank_and_comment_lines(
-      data, size, impl_->options.comment, impl_->options.skip_empty_rows);
-  if (comment_skip > 0) {
-    impl_->data_ptr += comment_skip;
-    impl_->data_size -= comment_skip;
-    data = impl_->data_ptr;
-    size = impl_->data_size;
-  }
 
   // Parse header if present
   if (impl_->options.has_header) {
@@ -898,29 +795,38 @@ Result<bool> CsvReader::open_from_buffer(AlignedBuffer buffer) {
     // No header - count columns from first row
     size_t first_row_end = finder.find_row_end(data, size, 0);
 
-    // Count separators in first row
-    const auto& sep = impl_->options.separator;
-    auto matches_sep_at = [&](size_t pos) -> bool {
-      if (pos + sep.size() > first_row_end) return false;
-      return std::memcmp(data + pos, sep.data(), sep.size()) == 0;
-    };
-    bool in_quote = false;
-    size_t col_count = 1;
-    for (size_t i = 0; i < first_row_end; ++i) {
-      char c = data[i];
-      if (impl_->options.escape_backslash && c == '\\' && i + 1 < first_row_end) {
-        ++i;
-        continue;
-      }
-      if (c == impl_->options.quote) {
-        if (in_quote && i + 1 < first_row_end && data[i + 1] == impl_->options.quote) {
-          ++i;
-        } else {
-          in_quote = !in_quote;
+    size_t col_count;
+    if (impl_->options.separator.size() > 1) {
+      // Multi-byte separator: use SplitFields to count fields
+      SplitFields iter(data, first_row_end, std::string_view(impl_->options.separator),
+                       impl_->options.quote, '\n', impl_->options.escape_backslash);
+      const char* fd;
+      size_t fl;
+      bool ne;
+      col_count = 0;
+      while (iter.next(fd, fl, ne))
+        col_count++;
+    } else {
+      // Count separators in first row (single-byte path)
+      bool in_quote = false;
+      col_count = 1;
+      for (size_t i = 0; i < first_row_end; ++i) {
+        char c = data[i];
+        if (impl_->options.escape_backslash && c == '\\' && i + 1 < first_row_end) {
+          ++i; // Skip escaped character
+          continue;
         }
-      } else if (!in_quote && matches_sep_at(i)) {
-        ++col_count;
-        i += sep.size() - 1; // Loop will ++i
+        if (c == impl_->options.quote) {
+          if (!impl_->options.escape_backslash && in_quote && i + 1 < first_row_end &&
+              data[i + 1] == impl_->options.quote) {
+            ++i;
+          } else {
+            in_quote = !in_quote;
+          }
+        } else if (!impl_->options.separator.empty() && c == impl_->options.separator[0] &&
+                   !in_quote) {
+          ++col_count;
+        }
       }
     }
 
@@ -958,23 +864,24 @@ const std::vector<ColumnSchema>& CsvReader::schema() const {
   return impl_->schema;
 }
 
-void CsvReader::set_schema(const std::vector<ColumnSchema>& schema) {
-  for (size_t i = 0; i < schema.size() && i < impl_->schema.size(); ++i) {
-    if (schema[i].type != DataType::UNKNOWN) {
-      impl_->schema[i].type = schema[i].type;
-    }
-    if (!schema[i].format.empty()) {
-      impl_->schema[i].format = schema[i].format;
-    }
+Result<bool> CsvReader::set_schema(const std::vector<ColumnSchema>& schema) {
+  if (impl_->schema.empty()) {
+    return Result<bool>::failure("Cannot set schema before calling open()");
   }
+  if (impl_->streaming_active) {
+    return Result<bool>::failure("Cannot set schema after streaming has started");
+  }
+  if (schema.size() != impl_->schema.size()) {
+    return Result<bool>::failure("Schema length mismatch: provided " +
+                                 std::to_string(schema.size()) + " columns but file has " +
+                                 std::to_string(impl_->schema.size()));
+  }
+  impl_->schema = schema;
+  return Result<bool>::success(true);
 }
 
-void CsvReader::set_format_parser(std::unique_ptr<FormatParser> parser) {
-  impl_->format_parser = std::move(parser);
-}
-
-const FormatParser* CsvReader::format_parser() const {
-  return impl_->format_parser.get();
+void CsvReader::set_format_locale(const FormatLocale& locale) {
+  impl_->format_locale = locale;
 }
 
 const EncodingResult& CsvReader::encoding() const {
@@ -1075,6 +982,7 @@ Result<ParsedChunks> CsvReader::read_all() {
       BS::thread_pool pool(pool_threads);
       const CsvOptions options = impl_->options;
       const std::vector<ColumnSchema> schema = impl_->schema;
+      const FormatLocale format_locale = impl_->format_locale;
 
       std::vector<ChunkParseResult> chunk_results(num_chunks);
       {
@@ -1089,10 +997,9 @@ Result<ParsedChunks> CsvReader::read_all() {
           ErrorCollector* chunk_error_collector =
               check_errors ? &thread_error_collectors[chunk_idx] : nullptr;
 
-          const FormatParser* fmt_parser = impl_->format_parser.get();
           futures.push_back(pool.submit_task([&chunk_results, data, size, chunk_idx, start_offset,
                                               end_offset, start_inside, expected_rows, options,
-                                              &schema, chunk_error_collector, fmt_parser]() {
+                                              &schema, chunk_error_collector, format_locale]() {
             if (start_offset >= size || end_offset > size || start_offset >= end_offset)
               return;
 
@@ -1100,14 +1007,14 @@ Result<ParsedChunks> CsvReader::read_all() {
             NullChecker null_checker(options);
 
             for (const auto& col_schema : schema) {
-              auto builder = create_builder_for_schema(col_schema, fmt_parser);
+              auto builder = create_builder_for_schema(col_schema, format_locale);
               builder->reserve(expected_rows);
               cr.columns.push_back(std::move(builder));
             }
 
             auto [rows, ends_inside] = parse_chunk_with_state(
                 data + start_offset, end_offset - start_offset, options, null_checker, cr.columns,
-                start_inside, chunk_error_collector, start_offset);
+                start_inside, chunk_error_collector, start_offset, &schema);
             (void)ends_inside;
             cr.row_count = rows;
           }));
@@ -1184,7 +1091,8 @@ Result<ParsedChunks> CsvReader::read_all() {
   std::vector<std::pair<size_t, size_t>> chunk_ranges; // (start_offset, end_offset)
   size_t offset = data_start;
 
-  ChunkFinder finder(impl_->options.separator, impl_->options.quote, impl_->options.escape_backslash);
+  ChunkFinder finder(impl_->options.separator.empty() ? ',' : impl_->options.separator[0],
+                     impl_->options.quote, impl_->options.escape_backslash);
 
   while (offset < size) {
     size_t target_end = std::min(offset + chunk_size, size);
@@ -1241,6 +1149,7 @@ Result<ParsedChunks> CsvReader::read_all() {
   // Capture what we need by value to avoid any lifetime issues
   const CsvOptions options = impl_->options;
   const std::vector<ColumnSchema> schema = impl_->schema;
+  const FormatLocale format_locale = impl_->format_locale;
 
   // ========================================================================
   // POLARS ALGORITHM: Two-phase approach
@@ -1272,7 +1181,8 @@ Result<ParsedChunks> CsvReader::read_all() {
             size_t chunk_size = end_offset - start_offset;
 
             // Single-pass dual-state analysis using SIMD
-            auto stats = analyze_chunk_dual_state_simd(chunk_data, chunk_size, options.quote, options.escape_backslash);
+            auto stats = analyze_chunk_dual_state_simd(chunk_data, chunk_size, options.quote,
+                                                       options.escape_backslash);
 
             auto& result = analysis_results[chunk_idx];
             result.row_count_outside = stats.row_count_outside;
@@ -1345,10 +1255,9 @@ Result<ParsedChunks> CsvReader::read_all() {
       ErrorCollector* chunk_error_collector =
           check_errors ? &thread_error_collectors[chunk_idx] : nullptr;
 
-      const FormatParser* fmt_parser = impl_->format_parser.get();
       futures.push_back(pool.submit_task([&chunk_results, data, size, chunk_idx, start_offset,
                                           end_offset, start_inside, expected_rows, options, &schema,
-                                          chunk_error_collector, fmt_parser]() {
+                                          chunk_error_collector, format_locale]() {
         if (start_offset >= size || end_offset > size || start_offset >= end_offset) {
           return;
         }
@@ -1361,7 +1270,7 @@ Result<ParsedChunks> CsvReader::read_all() {
 
         // Create column builders with pre-allocated capacity
         for (const auto& col_schema : schema) {
-          auto builder = create_builder_for_schema(col_schema, fmt_parser);
+          auto builder = create_builder_for_schema(col_schema, format_locale);
           builder->reserve(expected_rows);
           result.columns.push_back(std::move(builder));
         }
@@ -1369,7 +1278,7 @@ Result<ParsedChunks> CsvReader::read_all() {
         // Parse ONCE with the correct starting state
         auto [rows, ends_inside] =
             parse_chunk_with_state(chunk_data, chunk_size, options, null_checker, result.columns,
-                                   start_inside, chunk_error_collector, start_offset);
+                                   start_inside, chunk_error_collector, start_offset, &schema);
         (void)ends_inside; // Already computed in analysis phase
         result.row_count = rows;
       }));
@@ -1459,7 +1368,7 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
   // For serial path (small files), we don't pre-compute row count to avoid extra pass
   // The builder will grow dynamically, which is fine for small data
   for (const auto& col_schema : impl_->schema) {
-    auto builder = create_builder_for_schema(col_schema, impl_->format_parser.get());
+    auto builder = create_builder_for_schema(col_schema, impl_->format_locale);
     columns.push_back(std::move(builder));
   }
 
@@ -1467,9 +1376,11 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
   std::vector<FastArrowContext> fast_contexts;
   fast_contexts.reserve(columns.size());
   for (auto& col : columns) {
-    auto ctx = col->create_context();
-    ctx.decimal_mark = impl_->options.decimal_mark;
-    fast_contexts.push_back(ctx);
+    fast_contexts.push_back(col->create_context());
+  }
+  // Thread parsing options to contexts
+  for (auto& fc : fast_contexts) {
+    fc.decimal_mark = impl_->options.decimal_mark;
   }
 
   const char* data = impl_->data_ptr;
@@ -1481,23 +1392,24 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
   // Parse all rows using Polars-style SplitFields iterator
   // Key optimization: no separate find_row_end call - iterator handles EOL
-  // Note: row_number is declared below and used as absolute 1-indexed row,
-  // so base_row=0 and row_number_ptr points to row_number itself.
   size_t offset = impl_->header_end_offset;
   const char quote = options.quote;
-  const std::string_view sep = options.separator;
+  static const std::string default_sep_serial(",");
+  const std::string& sep = options.separator.empty() ? default_sep_serial : options.separator;
   const size_t num_cols = columns.size();
   const bool check_errors = impl_->error_collector.is_enabled();
-  // For single-char comments, pass to SplitFields for SIMD-accelerated detection.
-  // Multi-char comments still use the scalar post-field scan below.
-  const char comment_char = (options.comment.size() == 1) ? options.comment[0] : '\0';
-  const bool has_multi_char_comment = options.comment.size() > 1;
   // Row number is 1-indexed; row 1 is the header (if present)
   size_t row_number = impl_->options.has_header ? 2 : 1;
 
-  // Wire up type coercion error reporting
+  // Wire up type coercion error reporting when error collection is enabled
   if (check_errors) {
-    configure_error_contexts(fast_contexts, columns, &impl_->error_collector, &row_number, 0);
+    for (size_t i = 0; i < fast_contexts.size(); ++i) {
+      fast_contexts[i].error_collector = &impl_->error_collector;
+      fast_contexts[i].error_row = &row_number;
+      fast_contexts[i].error_col_index = i;
+      fast_contexts[i].error_col_name = impl_->schema[i].name.c_str();
+      fast_contexts[i].error_expected_type = impl_->schema[i].type;
+    }
   }
 
   while (offset < size) {
@@ -1525,31 +1437,20 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
     // Skip comment lines (handle \n, \r\n, and bare \r)
     if (starts_with_comment(data + offset, size - offset, impl_->options.comment)) {
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') {
-          offset++; // CRLF
-        }
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
+      offset = skip_to_next_line(data, size, offset);
       continue;
     }
 
     // Create iterator for remaining data - it stops at EOL
     size_t row_start_offset = offset;
     size_t start_remaining = size - offset;
-    SplitFields iter(data + offset, start_remaining, sep, quote, '\n', options.escape_backslash,
-                      comment_char);
+    SplitFields iter(data + offset, start_remaining, std::string_view(sep), quote, '\n',
+                     options.escape_backslash);
 
     const char* field_data;
     size_t field_len;
     bool needs_escaping;
     size_t col_idx = 0;
-    bool inline_comment_found = false;
 
     while (iter.next(field_data, field_len, needs_escaping)) {
       // Strip trailing \r if present
@@ -1557,78 +1458,15 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
         field_len--;
       }
 
-      // Trim whitespace if enabled.
+      // Trim whitespace if enabled
       if (options.trim_ws) {
         while (field_len > 0 && (field_data[0] == ' ' || field_data[0] == '\t')) {
           field_data++;
           field_len--;
         }
-        while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
+        while (field_len > 0 &&
+               (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
           field_len--;
-        }
-      }
-
-      // Check if SplitFields detected a comment boundary (single-char fast path)
-      if (iter.hit_comment()) {
-        // Re-trim trailing whitespace from the truncated field
-        if (options.trim_ws) {
-          while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
-            field_len--;
-          }
-        }
-        inline_comment_found = true;
-      }
-
-      // Multi-char inline comment detection: check for comment string in unquoted fields
-      // or after closing quote in quoted fields (only for multi-char comments)
-      if (has_multi_char_comment) {
-        const std::string& cmt = impl_->options.comment;
-        if (!needs_escaping) {
-          // Unquoted field: search for comment string within the raw field
-          // When escape_backslash is enabled, skip past backslash-escaped characters
-          for (size_t ci = 0; ci + cmt.size() <= field_len; ++ci) {
-            if (options.escape_backslash && field_data[ci] == '\\' && ci + 1 < field_len) {
-              ci++; // Skip past escaped character
-              continue;
-            }
-            if (std::memcmp(field_data + ci, cmt.data(), cmt.size()) == 0) {
-              // Truncate field at comment position
-              field_len = ci;
-              // Re-trim trailing whitespace after truncation
-              if (options.trim_ws) {
-                while (field_len > 0 && (field_data[field_len - 1] == ' ' || field_data[field_len - 1] == '\t')) {
-                  field_len--;
-                }
-              }
-              inline_comment_found = true;
-              break;
-            }
-          }
-        } else {
-          // Quoted field: check if comment appears right after closing quote
-          if (field_len >= 2 && field_data[0] == quote) {
-            size_t pos = 1;
-            while (pos < field_len) {
-              if (options.escape_backslash && field_data[pos] == '\\' && pos + 1 < field_len) {
-                pos += 2; // Skip backslash-escaped character
-                continue;
-              }
-              if (field_data[pos] == quote) {
-                if (pos + 1 < field_len && field_data[pos + 1] == quote) {
-                  pos += 2;
-                } else {
-                  if (pos + 1 + cmt.size() <= field_len &&
-                      std::memcmp(field_data + pos + 1, cmt.data(), cmt.size()) == 0) {
-                    field_len = pos + 1;
-                    inline_comment_found = true;
-                  }
-                  break;
-                }
-              } else {
-                pos++;
-              }
-            }
-          }
         }
       }
 
@@ -1636,7 +1474,9 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
       // Error detection within fields (only when error collection is enabled)
       if (check_errors) [[unlikely]] {
+        // Null byte detection
         if (std::memchr(field_data, '\0', field_len)) {
+          // Count and report each null byte
           for (size_t i = 0; i < field_len; ++i) {
             if (field_data[i] == '\0') {
               size_t byte_off = static_cast<size_t>(field_data - data) + i;
@@ -1649,6 +1489,7 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
           }
         }
 
+        // Quote in unquoted field
         if (!needs_escaping && field_len > 0 && std::memchr(field_data, quote, field_len)) {
           size_t byte_off = static_cast<size_t>(field_data - data);
           impl_->error_collector.add_error(ErrorCode::QUOTE_IN_UNQUOTED_FIELD,
@@ -1661,53 +1502,57 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
       if (col_idx >= num_cols) {
         col_idx++;
-        if (inline_comment_found) break;
         continue;
       }
 
       if (null_checker.is_null(field_view)) {
+        // Devirtualized append_null call
         fast_contexts[col_idx].append_null();
-      } else if (options.escape_backslash) {
-        // Backslash escape mode
-        if (needs_escaping && field_len >= 2 &&
-            field_data[0] == quote && field_data[field_len - 1] == quote) {
-          field_view = std::string_view(field_data + 1, field_len - 2);
-        }
-        if (std::memchr(field_view.data(), '\\', field_view.size())) {
-          std::string unescaped = unescape_backslash(field_view);
-          fast_contexts[col_idx].append(unescaped);
-        } else {
-          fast_contexts[col_idx].append(field_view);
-        }
       } else if (needs_escaping) {
         // Strip outer quotes
         if (field_len >= 2 && field_data[0] == quote && field_data[field_len - 1] == quote) {
           field_view = std::string_view(field_data + 1, field_len - 2);
         }
-        bool has_invalid_escape = false;
-        std::string unescaped =
-            unescape_quotes(field_view, quote, check_errors ? &has_invalid_escape : nullptr);
+        // Set byte offset for type coercion error reporting
+        fast_contexts[col_idx].error_byte_offset = static_cast<size_t>(field_data - data);
+        if (options.escape_backslash) {
+          std::string unescaped = unescape_backslash(field_view, quote);
+          fast_contexts[col_idx].append(unescaped);
+        } else {
+          bool has_invalid_escape = false;
+          std::string unescaped =
+              unescape_quotes(field_view, quote, check_errors ? &has_invalid_escape : nullptr);
 
-        if (has_invalid_escape) [[unlikely]] {
-          size_t byte_off = static_cast<size_t>(field_data - data);
-          impl_->error_collector.add_error(ErrorCode::INVALID_QUOTE_ESCAPE,
-                                           ErrorSeverity::RECOVERABLE, row_number, col_idx + 1,
-                                           byte_off, "Invalid quote escape sequence");
-          if (impl_->error_collector.should_stop())
-            goto done_serial;
+          // Invalid quote escape detection
+          if (has_invalid_escape) [[unlikely]] {
+            size_t byte_off = static_cast<size_t>(field_data - data);
+            impl_->error_collector.add_error(ErrorCode::INVALID_QUOTE_ESCAPE,
+                                             ErrorSeverity::RECOVERABLE, row_number, col_idx + 1,
+                                             byte_off, "Invalid quote escape sequence");
+            if (impl_->error_collector.should_stop())
+              goto done_serial;
+          }
+
+          // Devirtualized append call
+          fast_contexts[col_idx].append(unescaped);
         }
-
-        fast_contexts[col_idx].append(unescaped);
+        if (check_errors && impl_->error_collector.should_stop()) [[unlikely]]
+          goto done_serial;
       } else {
-        fast_contexts[col_idx].append(field_view);
+        // Set byte offset for type coercion error reporting
+        fast_contexts[col_idx].error_byte_offset = static_cast<size_t>(field_data - data);
+        // Unescape backslash sequences in unquoted fields when enabled
+        if (options.escape_backslash && field_view.find('\\') != std::string_view::npos) {
+          std::string unescaped = unescape_backslash(field_view, quote);
+          fast_contexts[col_idx].append(unescaped);
+        } else {
+          // Devirtualized append call
+          fast_contexts[col_idx].append(field_view);
+        }
+        if (check_errors && impl_->error_collector.should_stop()) [[unlikely]]
+          goto done_serial;
       }
       col_idx++;
-
-      // If inline comment was found, drain remaining fields from iterator and stop
-      if (inline_comment_found) {
-        while (iter.next(field_data, field_len, needs_escaping)) {}
-        break;
-      }
     }
 
     // Error: inconsistent field count
@@ -1727,20 +1572,6 @@ Result<ParsedChunks> CsvReader::read_all_serial() {
 
     // Advance offset by consumed bytes
     offset += start_remaining - iter.remaining();
-
-    // When SplitFields stopped at a comment char, skip past the remaining
-    // comment text to the actual end-of-line.
-    if (iter.hit_comment()) {
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') offset++;
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
-    }
 
     // Unclosed quote detection: if the iterator finished inside a quote
     // on the very last row (no more data), report it after the main loop
@@ -1800,7 +1631,8 @@ Result<bool> CsvReader::start_streaming() {
   auto& chunk_ranges = impl_->streaming_chunk_ranges;
   chunk_ranges.clear();
   size_t offset = data_start;
-  ChunkFinder finder(impl_->options.separator, impl_->options.quote, impl_->options.escape_backslash);
+  ChunkFinder finder(impl_->options.separator.empty() ? ',' : impl_->options.separator[0],
+                     impl_->options.quote, impl_->options.escape_backslash);
 
   while (offset < size) {
     size_t target_end = std::min(offset + chunk_size, size);
@@ -1847,17 +1679,17 @@ Result<bool> CsvReader::start_streaming() {
     for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
       size_t start_offset = chunk_ranges[chunk_idx].first;
       size_t end_offset = chunk_ranges[chunk_idx].second;
-      futures.push_back(pool.submit_task(
-          [&analysis_results, data, size, chunk_idx, start_offset, end_offset, options]() {
-            if (start_offset >= size || end_offset > size || start_offset >= end_offset)
-              return;
-            auto stats = analyze_chunk_dual_state_simd(data + start_offset,
-                                                       end_offset - start_offset, options.quote, options.escape_backslash);
-            auto& result = analysis_results[chunk_idx];
-            result.row_count_outside = stats.row_count_outside;
-            result.row_count_inside = stats.row_count_inside;
-            result.ends_inside_starting_outside = stats.ends_inside_quote_from_outside;
-          }));
+      futures.push_back(pool.submit_task([&analysis_results, data, size, chunk_idx, start_offset,
+                                          end_offset, options]() {
+        if (start_offset >= size || end_offset > size || start_offset >= end_offset)
+          return;
+        auto stats = analyze_chunk_dual_state_simd(data + start_offset, end_offset - start_offset,
+                                                   options.quote, options.escape_backslash);
+        auto& result = analysis_results[chunk_idx];
+        result.row_count_outside = stats.row_count_outside;
+        result.row_count_inside = stats.row_count_inside;
+        result.ends_inside_starting_outside = stats.ends_inside_quote_from_outside;
+      }));
     }
     for (auto& f : futures)
       f.get();
@@ -1878,16 +1710,11 @@ Result<bool> CsvReader::start_streaming() {
     use_inside_state[i] = prev_ends_inside;
   }
 
-  // Compute total row count and per-chunk base line numbers
+  // Compute total row count
   size_t total_row_count = 0;
-  std::vector<size_t> chunk_base_lines(num_chunks);
-  size_t header_lines = impl_->options.has_header ? 1 : 0;
   for (size_t i = 0; i < num_chunks; ++i) {
-    size_t chunk_rows = use_inside_state[i] ? analysis_results[i].row_count_inside
-                                            : analysis_results[i].row_count_outside;
-    // Base line number: 1-indexed, after header
-    chunk_base_lines[i] = total_row_count + 1 + header_lines;
-    total_row_count += chunk_rows;
+    total_row_count += use_inside_state[i] ? analysis_results[i].row_count_inside
+                                           : analysis_results[i].row_count_outside;
   }
   impl_->row_count = total_row_count;
 
@@ -1907,6 +1734,7 @@ Result<bool> CsvReader::start_streaming() {
 
   // Phase 3: Dispatch parse tasks (fire-and-forget -- they push to queue)
   const std::vector<ColumnSchema> schema = impl_->schema;
+  const FormatLocale format_locale = impl_->format_locale;
   auto* queue_ptr = impl_->streaming_queue.get();
   auto* error_collectors_ptr = check_errors ? &impl_->streaming_error_collectors : nullptr;
 
@@ -1918,11 +1746,9 @@ Result<bool> CsvReader::start_streaming() {
                                         : analysis_results[chunk_idx].row_count_outside;
     ErrorCollector* chunk_error_collector =
         check_errors ? &(*error_collectors_ptr)[chunk_idx] : nullptr;
-    size_t base_line = chunk_base_lines[chunk_idx];
 
-    const FormatParser* fmt_parser = impl_->format_parser.get();
     pool.detach_task([queue_ptr, data, size, chunk_idx, start_offset, end_offset, start_inside,
-                      expected_rows, options, schema, chunk_error_collector, base_line, fmt_parser]() {
+                      expected_rows, options, schema, chunk_error_collector, format_locale]() {
       if (start_offset >= size || end_offset > size || start_offset >= end_offset) {
         std::vector<std::unique_ptr<ArrowColumnBuilder>> empty;
         queue_ptr->push(chunk_idx, std::move(empty));
@@ -1932,14 +1758,14 @@ Result<bool> CsvReader::start_streaming() {
       NullChecker null_checker(options);
       std::vector<std::unique_ptr<ArrowColumnBuilder>> columns;
       for (const auto& col_schema : schema) {
-        auto builder = create_builder_for_schema(col_schema, fmt_parser);
+        auto builder = create_builder_for_schema(col_schema, format_locale);
         builder->reserve(expected_rows);
         columns.push_back(std::move(builder));
       }
 
       auto [rows, ends_inside] = parse_chunk_with_state(
           data + start_offset, end_offset - start_offset, options, null_checker, columns,
-          start_inside, chunk_error_collector, start_offset, base_line);
+          start_inside, chunk_error_collector, start_offset, &schema);
       (void)ends_inside;
       (void)rows;
 

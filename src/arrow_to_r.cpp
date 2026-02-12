@@ -209,15 +209,17 @@ SEXP timestamp_column_to_r(const ArrowTimestampColumnBuilder& col, size_t nrows)
 
 SEXP time_column_to_r(const ArrowTimeColumnBuilder& col, size_t nrows) {
   cpp11::writable::doubles result(nrows);
-  const double* src = col.values().data();
+  const int64_t* src = col.values().data();
   double* dest = REAL(result);
 
   if (!col.null_bitmap().has_nulls()) {
-    std::memcpy(dest, src, nrows * sizeof(double));
+    for (size_t i = 0; i < nrows; i++) {
+      dest[i] = static_cast<double>(src[i]) / 1e6;
+    }
   } else {
     const NullBitmap& nulls = col.null_bitmap();
     for (size_t i = 0; i < nrows; i++) {
-      dest[i] = nulls.is_valid(i) ? src[i] : NA_REAL;
+      dest[i] = nulls.is_valid(i) ? static_cast<double>(src[i]) / 1e6 : NA_REAL;
     }
   }
 
@@ -414,8 +416,9 @@ cpp11::writable::list columns_to_r_chunked(
 
     } else if (type == DataType::TIME) {
       cpp11::writable::doubles r_vec(total_rows);
-      copy_numeric_chunks_direct<ArrowTimeColumnBuilder, double>(
-          chunks, i, REAL(r_vec), NA_REAL);
+      copy_numeric_chunks<ArrowTimeColumnBuilder, int64_t, double>(
+          chunks, i, REAL(r_vec), NA_REAL,
+          [](int64_t v) { return static_cast<double>(v) / 1e6; });
       r_vec.attr("class") =
           cpp11::writable::strings({"hms", "difftime"});
       r_vec.attr("units") = "secs";

@@ -10,12 +10,11 @@
 
 #undef HWY_TARGET_INCLUDE
 #define HWY_TARGET_INCLUDE "src/parser/simd_chunk_finder.cpp"
+#include "libvroom/escape_mask.h"
 #include "libvroom/quote_parity.h"
 
 #include "hwy/foreach_target.h"
 #include "hwy/highway.h"
-
-#include "libvroom/split_fields.h"
 
 #include <cstdint>
 #include <tuple>
@@ -48,8 +47,7 @@ namespace hn = hwy::HWY_NAMESPACE;
 HWY_NOINLINE std::tuple<size_t, size_t, int>
 AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
                      uint64_t initial_quote_state, // 0 = outside, ~0ULL = inside
-                     int escape_backslash
-) {
+                     bool escape_backslash) {
   size_t row_count = 0;
   size_t last_row_end = 0;
 
@@ -65,14 +63,15 @@ AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
   const auto cr_vec = hn::Set(d, static_cast<uint8_t>('\r'));
 
   uint64_t quote_state = initial_quote_state;
+  uint64_t escape_state = 0;
   size_t offset = 0;
-  EscapeState esc_state;
 
   // Process in 64-byte blocks for consistent quote parity tracking
   while (offset + 64 <= size) {
     uint64_t quote_bits = 0;
     uint64_t newline_bits = 0;
     uint64_t cr_bits = 0;
+    uint64_t backslash_bits = 0;
 
     // Process 64 bytes in chunks of vector width N
     for (size_t chunk_offset = 0; chunk_offset < 64; chunk_offset += N) {
@@ -102,33 +101,52 @@ AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
           cr_bits |= static_cast<uint64_t>(c_bytes[b]) << bit_offset;
         }
       }
+
+      // If escape_backslash, also scan for backslash characters
+      if (escape_backslash) {
+        auto bsm = hn::Eq(block, hn::Set(d, static_cast<uint8_t>('\\')));
+        uint8_t bs_bytes[HWY_MAX_BYTES / 8] = {0};
+        hn::StoreMaskBits(d, bsm, bs_bytes);
+        for (size_t b = 0; b < num_mask_bytes && chunk_offset + b * 8 < 64; ++b) {
+          size_t bit_offset = chunk_offset + b * 8;
+          if (bit_offset < 64) {
+            backslash_bits |= static_cast<uint64_t>(bs_bytes[b]) << bit_offset;
+          }
+        }
+      }
     }
 
-    // When backslash escaping is enabled, filter out escaped characters.
-    // Always call compute_escaped_mask to consume carry bit from previous block.
+    // Backslash escape handling: remove escaped quotes before computing parity
     if (escape_backslash) {
-      uint64_t bs_bits = libvroom::scan_for_char_simd(data + offset, 64, '\\');
-      uint64_t escaped = compute_escaped_mask(bs_bits, esc_state);
+      auto [escaped, escape] = compute_escaped_mask(backslash_bits, escape_state);
+      // Remove escaped quotes - they don't toggle quote state
       quote_bits &= ~escaped;
-      newline_bits &= ~escaped;
-      cr_bits &= ~escaped;
     }
 
     // Compute quote mask using CLMUL-based prefix XOR.
+    // Escaped quotes ("") are handled correctly: each quote toggles state,
+    // so "" toggles twice and ends up in the same state. Since newlines
+    // cannot appear between adjacent quotes, the brief "wrong" state during
+    // the pair doesn't affect row detection. Tests verify SIMD matches scalar.
     uint64_t inside_quote = find_quote_mask(quote_bits, quote_state);
 
     // Valid line endings are newlines NOT inside quotes
     uint64_t valid_lf = newline_bits & ~inside_quote;
 
     // Standalone CR: CR not followed by LF, and not inside quotes.
+    // CR at position i is standalone if there's no LF at position i+1.
     uint64_t valid_cr = cr_bits & ~inside_quote;
+    // Remove CRs that are followed by LF (CRLF pairs - we count the LF).
+    // If LF is at position i+1, then (newline_bits >> 1) has bit i set.
+    // So (valid_cr & (newline_bits >> 1)) gives CRs that are part of CRLF.
     uint64_t crlf_cr = valid_cr & (newline_bits >> 1);
     uint64_t standalone_cr = valid_cr & ~crlf_cr;
 
     // Handle CR at position 63 - need to check next block's first byte
     if (standalone_cr & (1ULL << 63)) {
+      // CR at last position - check if next byte is LF
       if (offset + 64 < size && data[offset + 64] == '\n') {
-        standalone_cr &= ~(1ULL << 63);
+        standalone_cr &= ~(1ULL << 63); // It's CRLF, don't count
       }
     }
 
@@ -140,6 +158,7 @@ AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
 
     // Track last row ending position
     if (valid_eol != 0) {
+      // Find highest set bit position
       int last_eol_bit = 63 - __builtin_clzll(valid_eol);
       last_row_end = offset + static_cast<size_t>(last_eol_bit) + 1;
     }
@@ -148,24 +167,38 @@ AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
   }
 
   // Handle remaining bytes with scalar code
+  // Consume carried escape state from last SIMD block
+  if (escape_backslash && escape_state != 0 && offset < size) {
+    offset++; // First byte of scalar tail is already escaped
+    escape_state = 0;
+  }
+
   while (offset < size) {
     char c = data[offset];
 
-    if (escape_backslash && c == '\\' && offset + 1 < size) {
-      offset += 2; // Skip escaped character
-      continue;
-    }
-
-    if (c == quote_char) {
-      // Check for escaped quote (doubled)
-      bool in_quote = (quote_state != 0);
-      if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
-        offset += 2; // Skip escaped quote pair
+    if (escape_backslash) {
+      if (c == '\\' && offset + 1 < size) {
+        offset += 2; // Skip backslash + escaped character
         continue;
       }
-      // Toggle quote state
-      quote_state = quote_state ? 0 : ~0ULL;
-    } else if (quote_state == 0) {
+      if (c == quote_char) {
+        // In backslash mode, quotes always toggle (no doubled-quote check)
+        quote_state = quote_state ? 0 : ~0ULL;
+      }
+    } else {
+      if (c == quote_char) {
+        // Check for escaped quote (doubled)
+        bool in_quote = (quote_state != 0);
+        if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
+          offset += 2; // Skip escaped quote pair
+          continue;
+        }
+        // Toggle quote state
+        quote_state = quote_state ? 0 : ~0ULL;
+      }
+    }
+
+    if (quote_state == 0) {
       // Not inside quote - check for line endings
       if (c == '\n') {
         row_count++;
@@ -190,9 +223,9 @@ AnalyzeChunkSimdImpl(const char* data, size_t size, char quote_char,
 // Count rows in data using SIMD.
 // Returns (row_count, offset_after_last_complete_row).
 HWY_NOINLINE std::pair<size_t, size_t> CountRowsSimdImpl(const char* data, size_t size,
-                                                         char quote_char,
-                                                         int escape_backslash) {
-  auto [count, last_end, ends_in_quote] = AnalyzeChunkSimdImpl(data, size, quote_char, 0, escape_backslash);
+                                                         char quote_char, bool escape_backslash) {
+  auto [count, last_end, ends_in_quote] =
+      AnalyzeChunkSimdImpl(data, size, quote_char, 0, escape_backslash);
   (void)ends_in_quote;
   return {count, last_end};
 }
@@ -206,7 +239,7 @@ HWY_NOINLINE std::pair<size_t, size_t> CountRowsSimdImpl(const char* data, size_
 // Returns: row counts and last row offsets for both states, plus ending quote state.
 HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* data, size_t size,
                                                                    char quote_char,
-                                                                   int escape_backslash) {
+                                                                   bool escape_backslash) {
   DualStateResultInternal result = {0, 0, 0, 0, 0};
 
   if (size == 0) {
@@ -222,14 +255,15 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
 
   // Global quote parity: 0 means even quotes seen so far
   uint64_t global_quote_parity_mask = 0;
+  uint64_t escape_state = 0;
   size_t offset = 0;
-  EscapeState esc_state;
 
   // Process in 64-byte blocks for consistent quote parity tracking
   while (offset + 64 <= size) {
     uint64_t quote_bits = 0;
     uint64_t newline_bits = 0;
     uint64_t cr_bits = 0;
+    uint64_t backslash_bits = 0;
 
     // Process 64 bytes in chunks of vector width N
     for (size_t chunk_offset = 0; chunk_offset < 64; chunk_offset += N) {
@@ -257,16 +291,26 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
           cr_bits |= static_cast<uint64_t>(c_bytes[b]) << bit_offset;
         }
       }
+
+      // If escape_backslash, also scan for backslash characters
+      if (escape_backslash) {
+        auto bsm = hn::Eq(block, hn::Set(d, static_cast<uint8_t>('\\')));
+        uint8_t bs_bytes[HWY_MAX_BYTES / 8] = {0};
+        hn::StoreMaskBits(d, bsm, bs_bytes);
+        for (size_t b = 0; b < num_mask_bytes && chunk_offset + b * 8 < 64; ++b) {
+          size_t bit_offset = chunk_offset + b * 8;
+          if (bit_offset < 64) {
+            backslash_bits |= static_cast<uint64_t>(bs_bytes[b]) << bit_offset;
+          }
+        }
+      }
     }
 
-    // When backslash escaping is enabled, filter out escaped characters.
-    // Always call compute_escaped_mask to consume carry bit from previous block.
+    // Backslash escape handling: remove escaped quotes before computing parity
     if (escape_backslash) {
-      uint64_t bs_bits = libvroom::scan_for_char_simd(data + offset, 64, '\\');
-      uint64_t escaped = compute_escaped_mask(bs_bits, esc_state);
+      auto [escaped, escape] = compute_escaped_mask(backslash_bits, escape_state);
+      // Remove escaped quotes - they don't toggle quote state
       quote_bits &= ~escaped;
-      newline_bits &= ~escaped;
-      cr_bits &= ~escaped;
     }
 
     // Compute quote parity using CLMUL (XOR with global state to handle continuation)
@@ -293,6 +337,7 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
 
     // Handle CR at position 63 - need to check next block's first byte
     if ((cr_bits & (1ULL << 63)) && offset + 64 < size && data[offset + 64] == '\n') {
+      // It's part of CRLF, remove from both states
       valid_eol_outside &= ~(1ULL << 63);
       valid_eol_inside &= ~(1ULL << 63);
     }
@@ -315,19 +360,37 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
   }
 
   // Handle remaining bytes with scalar code
+  // At this point, global_quote_parity_mask is 0 or ~0ULL
   bool global_quote_parity = (global_quote_parity_mask != 0);
+
+  // Consume carried escape state from last SIMD block
+  if (escape_backslash && escape_state != 0 && offset < size) {
+    offset++; // First byte of scalar tail is already escaped
+    escape_state = 0;
+  }
 
   while (offset < size) {
     char c = data[offset];
 
-    if (escape_backslash && c == '\\' && offset + 1 < size) {
-      offset += 2; // Skip escaped character
-      continue;
+    if (escape_backslash) {
+      if (c == '\\' && offset + 1 < size) {
+        offset += 2; // Skip backslash + escaped character
+        continue;
+      }
+      if (c == quote_char) {
+        global_quote_parity = !global_quote_parity;
+      }
+    } else {
+      if (c == quote_char) {
+        // Toggle global parity (don't handle escaped quotes specially in counting)
+        global_quote_parity = !global_quote_parity;
+      }
     }
 
-    if (c == quote_char) {
-      global_quote_parity = !global_quote_parity;
-    } else if (c == '\n') {
+    if (c == '\n') {
+      // LF is valid EOL when parity indicates "outside" for that state
+      // For state 0: valid when !global_quote_parity
+      // For state 1: valid when global_quote_parity
       if (!global_quote_parity) {
         result.row_count_outside++;
         result.last_row_end_outside = offset + 1;
@@ -336,8 +399,10 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
         result.last_row_end_inside = offset + 1;
       }
     } else if (c == '\r') {
+      // Check for CRLF
       bool is_crlf = (offset + 1 < size && data[offset + 1] == '\n');
       if (!is_crlf) {
+        // Standalone CR
         if (!global_quote_parity) {
           result.row_count_outside++;
           result.last_row_end_outside = offset + 1;
@@ -346,6 +411,7 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
           result.last_row_end_inside = offset + 1;
         }
       }
+      // If CRLF, we'll count on the LF
     }
 
     offset++;
@@ -358,8 +424,8 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
 // Find the end of the row starting from 'start' position using SIMD.
 // Returns offset of first byte after row terminator (newline or CRLF).
 // If no newline found, returns size.
-HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t start,
-                                       char quote_char, int escape_backslash) {
+HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t start, char quote_char,
+                                       bool escape_backslash) {
   if (start >= size) {
     return size;
   }
@@ -371,11 +437,13 @@ HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t sta
   const auto newline_vec = hn::Set(d, static_cast<uint8_t>('\n'));
   const auto cr_vec = hn::Set(d, static_cast<uint8_t>('\r'));
 
+  // Start scanning from the given position
+  // Assume we start outside quotes (consistent with scalar implementation)
   uint64_t quote_state = 0;
   size_t offset = start;
-  EscapeState esc_state;
 
-  // Align to 64-byte boundary
+  // Align to 64-byte boundary for efficient SIMD processing
+  // First, handle bytes before the next 64-byte aligned block
   size_t aligned_start = ((start + 63) / 64) * 64;
   if (aligned_start > size) {
     aligned_start = size;
@@ -385,38 +453,50 @@ HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t sta
   bool in_quote = false;
   while (offset < aligned_start && offset < size) {
     char c = data[offset];
-    if (escape_backslash && c == '\\' && offset + 1 < size) {
-      offset += 2;
-      continue;
-    }
-    if (c == quote_char) {
-      if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
+    if (escape_backslash) {
+      if (c == '\\' && offset + 1 < size) {
         offset += 2;
         continue;
       }
-      in_quote = !in_quote;
-    } else if (!in_quote) {
+      if (c == quote_char) {
+        in_quote = !in_quote;
+      }
+    } else {
+      if (c == quote_char) {
+        // Check for escaped quote
+        if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
+          offset += 2;
+          continue;
+        }
+        in_quote = !in_quote;
+      }
+    }
+    if (!in_quote) {
       if (c == '\n') {
         return offset + 1;
       }
       if (c == '\r') {
         if (offset + 1 < size && data[offset + 1] == '\n') {
-          return offset + 2;
+          return offset + 2; // CRLF
         }
-        return offset + 1;
+        return offset + 1; // Standalone CR
       }
     }
     offset++;
   }
 
+  // Update quote_state for SIMD processing
   quote_state = in_quote ? ~0ULL : 0;
+  uint64_t escape_state = 0;
 
   // Process 64-byte blocks with SIMD
   while (offset + 64 <= size) {
     uint64_t quote_bits = 0;
     uint64_t newline_bits = 0;
     uint64_t cr_bits = 0;
+    uint64_t backslash_bits = 0;
 
+    // Process 64 bytes in chunks of vector width N
     for (size_t chunk_offset = 0; chunk_offset < 64; chunk_offset += N) {
       const auto* ptr = reinterpret_cast<const uint8_t*>(data + offset + chunk_offset);
       auto block = hn::LoadU(d, ptr);
@@ -442,40 +522,59 @@ HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t sta
           cr_bits |= static_cast<uint64_t>(c_bytes[b]) << bit_offset;
         }
       }
+
+      // If escape_backslash, also scan for backslash characters
+      if (escape_backslash) {
+        auto bsm = hn::Eq(block, hn::Set(d, static_cast<uint8_t>('\\')));
+        uint8_t bs_bytes[HWY_MAX_BYTES / 8] = {0};
+        hn::StoreMaskBits(d, bsm, bs_bytes);
+        for (size_t b = 0; b < num_mask_bytes && chunk_offset + b * 8 < 64; ++b) {
+          size_t bit_offset = chunk_offset + b * 8;
+          if (bit_offset < 64) {
+            backslash_bits |= static_cast<uint64_t>(bs_bytes[b]) << bit_offset;
+          }
+        }
+      }
     }
 
-    // Filter escaped characters.
-    // Always call compute_escaped_mask to consume carry bit from previous block.
+    // Backslash escape handling: remove escaped quotes before computing parity
     if (escape_backslash) {
-      uint64_t bs_bits = libvroom::scan_for_char_simd(data + offset, 64, '\\');
-      uint64_t escaped = compute_escaped_mask(bs_bits, esc_state);
+      auto [escaped, escape] = compute_escaped_mask(backslash_bits, escape_state);
+      // Remove escaped quotes - they don't toggle quote state
       quote_bits &= ~escaped;
-      newline_bits &= ~escaped;
-      cr_bits &= ~escaped;
     }
 
+    // Compute quote mask
     uint64_t inside_quote = find_quote_mask(quote_bits, quote_state);
 
+    // Valid line endings are newlines NOT inside quotes
     uint64_t valid_lf = newline_bits & ~inside_quote;
+
+    // Handle standalone CR (not part of CRLF, not inside quotes)
     uint64_t valid_cr = cr_bits & ~inside_quote;
     uint64_t crlf_cr = valid_cr & (newline_bits >> 1);
     uint64_t standalone_cr = valid_cr & ~crlf_cr;
 
+    // Handle CR at position 63 - check next block's first byte
     if (standalone_cr & (1ULL << 63)) {
       if (offset + 64 < size && data[offset + 64] == '\n') {
-        standalone_cr &= ~(1ULL << 63);
+        standalone_cr &= ~(1ULL << 63); // It's CRLF
       }
     }
 
+    // Total valid line endings
     uint64_t valid_eol = valid_lf | standalone_cr;
 
+    // Find FIRST valid end-of-line (lowest set bit)
     if (valid_eol != 0) {
       int first_eol_bit = __builtin_ctzll(valid_eol);
       size_t eol_pos = offset + static_cast<size_t>(first_eol_bit);
 
+      // Check if it's LF or CR
       if (data[eol_pos] == '\n') {
         return eol_pos + 1;
       } else {
+        // CR - check for CRLF
         if (eol_pos + 1 < size && data[eol_pos + 1] == '\n') {
           return eol_pos + 2;
         }
@@ -488,19 +587,33 @@ HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t sta
 
   // Handle remaining bytes with scalar
   in_quote = (quote_state != 0);
+
+  // Consume carried escape state from last SIMD block
+  if (escape_backslash && escape_state != 0 && offset < size) {
+    offset++; // First byte of scalar tail is already escaped
+    escape_state = 0;
+  }
+
   while (offset < size) {
     char c = data[offset];
-    if (escape_backslash && c == '\\' && offset + 1 < size) {
-      offset += 2;
-      continue;
-    }
-    if (c == quote_char) {
-      if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
+    if (escape_backslash) {
+      if (c == '\\' && offset + 1 < size) {
         offset += 2;
         continue;
       }
-      in_quote = !in_quote;
-    } else if (!in_quote) {
+      if (c == quote_char) {
+        in_quote = !in_quote;
+      }
+    } else {
+      if (c == quote_char) {
+        if (in_quote && offset + 1 < size && data[offset + 1] == quote_char) {
+          offset += 2;
+          continue;
+        }
+        in_quote = !in_quote;
+      }
+    }
+    if (!in_quote) {
       if (c == '\n') {
         return offset + 1;
       }
@@ -514,7 +627,7 @@ HWY_NOINLINE size_t FindRowEndSimdImpl(const char* data, size_t size, size_t sta
     offset++;
   }
 
-  return size;
+  return size; // No newline found
 }
 
 } // namespace HWY_NAMESPACE
@@ -540,7 +653,7 @@ HWY_EXPORT(FindRowEndSimdImpl);
 // Returns (row_count, offset_after_last_complete_row)
 std::pair<size_t, size_t> count_rows_simd(const char* data, size_t size, char quote_char,
                                           bool escape_backslash) {
-  return HWY_DYNAMIC_DISPATCH(CountRowsSimdImpl)(data, size, quote_char, escape_backslash ? 1 : 0);
+  return HWY_DYNAMIC_DISPATCH(CountRowsSimdImpl)(data, size, quote_char, escape_backslash);
 }
 
 // Analyze chunk with known starting quote state
@@ -549,7 +662,7 @@ std::tuple<size_t, size_t, bool> analyze_chunk_simd(const char* data, size_t siz
                                                     bool start_inside_quote,
                                                     bool escape_backslash) {
   auto [count, last_end, ends_in_quote] = HWY_DYNAMIC_DISPATCH(AnalyzeChunkSimdImpl)(
-      data, size, quote_char, start_inside_quote ? ~0ULL : 0, escape_backslash ? 1 : 0);
+      data, size, quote_char, start_inside_quote ? ~0ULL : 0, escape_backslash);
   return {count, last_end, ends_in_quote != 0};
 }
 
@@ -557,8 +670,8 @@ std::tuple<size_t, size_t, bool> analyze_chunk_simd(const char* data, size_t siz
 // Computes stats for BOTH starting states simultaneously using SIMD
 DualStateChunkStats analyze_chunk_dual_state_simd(const char* data, size_t size, char quote_char,
                                                   bool escape_backslash) {
-  auto result = HWY_DYNAMIC_DISPATCH(AnalyzeChunkDualStateSimdImpl)(data, size, quote_char,
-                                                                     escape_backslash ? 1 : 0);
+  auto result =
+      HWY_DYNAMIC_DISPATCH(AnalyzeChunkDualStateSimdImpl)(data, size, quote_char, escape_backslash);
 
   DualStateChunkStats stats;
   stats.row_count_outside = result.row_count_outside;
@@ -573,8 +686,7 @@ DualStateChunkStats analyze_chunk_dual_state_simd(const char* data, size_t size,
 // Returns offset of first byte after row terminator.
 size_t find_row_end_simd(const char* data, size_t size, size_t start, char quote_char,
                          bool escape_backslash) {
-  return HWY_DYNAMIC_DISPATCH(FindRowEndSimdImpl)(data, size, start, quote_char,
-                                                   escape_backslash ? 1 : 0);
+  return HWY_DYNAMIC_DISPATCH(FindRowEndSimdImpl)(data, size, start, quote_char, escape_backslash);
 }
 
 // Scalar fallback for small data or verification
@@ -587,26 +699,35 @@ std::pair<size_t, size_t> count_rows_scalar(const char* data, size_t size, char 
   for (size_t i = 0; i < size; ++i) {
     char c = data[i];
 
-    if (escape_backslash && c == '\\' && i + 1 < size) {
-      ++i; // Skip escaped character
-      continue;
-    }
-
-    if (c == quote_char) {
-      // Check for escaped quote
-      if (in_quote && i + 1 < size && data[i + 1] == quote_char) {
-        ++i; // Skip escaped quote
+    if (escape_backslash) {
+      if (c == '\\' && i + 1 < size) {
+        ++i; // Skip escaped character
         continue;
       }
-      in_quote = !in_quote;
-    } else if (!in_quote) {
+      if (c == quote_char) {
+        in_quote = !in_quote;
+      }
+    } else {
+      if (c == quote_char) {
+        // Check for escaped quote
+        if (in_quote && i + 1 < size && data[i + 1] == quote_char) {
+          ++i; // Skip escaped quote
+          continue;
+        }
+        in_quote = !in_quote;
+      }
+    }
+
+    if (!in_quote) {
       if (c == '\n') {
         ++row_count;
         last_row_end = i + 1;
       } else if (c == '\r') {
+        // CRLF or standalone CR
         if (i + 1 < size && data[i + 1] == '\n') {
           // CRLF - will count on the LF
         } else {
+          // Standalone CR
           ++row_count;
           last_row_end = i + 1;
         }
@@ -626,32 +747,43 @@ size_t find_row_end_scalar(const char* data, size_t size, size_t start, char quo
   while (i < size) {
     char c = data[i];
 
-    if (escape_backslash && c == '\\' && i + 1 < size) {
-      i += 2; // Skip escaped character
-      continue;
-    }
-
-    if (c == quote_char) {
-      if (in_quote && i + 1 < size && data[i + 1] == quote_char) {
-        i += 2; // Skip escaped quote
+    if (escape_backslash) {
+      if (c == '\\' && i + 1 < size) {
+        i += 2; // Skip backslash + escaped character
         continue;
       }
-      in_quote = !in_quote;
-    } else if (!in_quote) {
+      if (c == quote_char) {
+        in_quote = !in_quote;
+      }
+    } else {
+      if (c == quote_char) {
+        // Check for escaped quote (doubled quote inside quoted field)
+        if (in_quote && i + 1 < size && data[i + 1] == quote_char) {
+          i += 2; // Skip escaped quote
+          continue;
+        }
+        in_quote = !in_quote;
+      }
+    }
+
+    if (!in_quote) {
+      // Check for line terminator
       if (c == '\n') {
-        return i + 1;
+        return i + 1; // Past the newline
       }
       if (c == '\r') {
+        // Handle \r\n or standalone \r
         if (i + 1 < size && data[i + 1] == '\n') {
-          return i + 2;
+          return i + 2; // Past \r\n
         }
-        return i + 1;
+        return i + 1; // Past \r
       }
     }
 
     ++i;
   }
 
+  // Reached end of data (last row without newline)
   return size;
 }
 

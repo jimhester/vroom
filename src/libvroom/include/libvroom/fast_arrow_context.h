@@ -4,10 +4,12 @@
 #include "error.h"
 #include "format_parser.h"
 #include "simd_atoi.h"
+#include "types.h"
 
 #include <charconv>
 #include <fast_float/fast_float.h>
 #include <limits>
+#include <string>
 #include <string_view>
 
 namespace libvroom {
@@ -15,6 +17,7 @@ namespace libvroom {
 // Forward declarations
 bool parse_date(std::string_view value, int32_t& days_since_epoch);
 bool parse_timestamp(std::string_view value, int64_t& micros_since_epoch);
+bool parse_time(std::string_view value, int64_t& micros_since_midnight);
 
 // FastArrowContext - uses Arrow-style buffers for zero-copy batch operations
 // Key differences from FastColumnContext:
@@ -33,10 +36,6 @@ public:
   };
   NullBitmap* null_bitmap;
 
-  // Format-aware parsing support
-  const FormatParser* format_parser = nullptr;
-  const std::string* format_string = nullptr;
-
   // Function pointers for type-specific operations
   using AppendFn = void (*)(FastArrowContext& ctx, std::string_view value);
   using AppendNullFn = void (*)(FastArrowContext& ctx);
@@ -44,24 +43,30 @@ public:
   AppendFn append_fn;
   AppendNullFn append_null_fn;
 
-  // Locale-specific settings
+  // Parsing options (set from CsvOptions before use)
   char decimal_mark = '.';
 
-  // Error reporting (optional — nullptr means no error collection)
-  ErrorCollector* error_collector = nullptr;
-  size_t* row_number_ptr = nullptr;  // Points to caller's row counter
-  size_t base_row = 0;               // Added to *row_number_ptr for absolute line
-  size_t col_index = 0;              // 1-indexed column number
-  const char* type_label = "";       // e.g. "a double", "an integer"
+  // Format parser for custom date/time/timestamp formats (null = use ISO8601)
+  const FormatParser* format_parser = nullptr;
 
-  // Report a type coercion failure to the error collector (if present)
-  static void report_coercion_error(FastArrowContext& ctx, std::string_view value) {
-    if (ctx.error_collector) [[unlikely]] {
-      ctx.error_collector->add_error(
-          ErrorCode::TYPE_COERCION_FAILURE, ErrorSeverity::RECOVERABLE,
-          ctx.base_row + (ctx.row_number_ptr ? *ctx.row_number_ptr : 0),
-          ctx.col_index, 0, ctx.type_label, std::string(value));
-    }
+  // Error reporting (optional - null when error collection is disabled)
+  ErrorCollector* error_collector = nullptr;
+  size_t* error_row = nullptr;     // Pointer to current row number (caller updates)
+  size_t error_col_index = 0;      // 0-indexed column index
+  const char* error_col_name = ""; // Column name (points to stable storage)
+  DataType error_expected_type = DataType::STRING;
+  size_t error_byte_offset = 0; // Byte offset of current field (caller updates)
+
+  // Report a type coercion error if error collection is enabled
+  inline void report_coercion_error(std::string_view actual_value) {
+    if (!error_collector)
+      return;
+    std::string msg = std::string("Cannot convert to ") + type_name(error_expected_type) +
+                      " in column '" + error_col_name + "'";
+    std::string ctx(actual_value.substr(0, 100));
+    error_collector->add_error(ErrorCode::TYPE_COERCION, ErrorSeverity::RECOVERABLE,
+                               error_row ? *error_row : 0, error_col_index + 1, error_byte_offset,
+                               msg, ctx);
   }
 
   // ============================================
@@ -126,7 +131,7 @@ public:
       ctx.int32_buffer->push_back(result);
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
       ctx.int32_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
@@ -184,7 +189,7 @@ public:
       ctx.int64_buffer->push_back(result);
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
       ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
@@ -197,26 +202,23 @@ public:
   // Float64
   static void append_float64(FastArrowContext& ctx, std::string_view value) {
     double result;
-    fast_float::parse_options opts{fast_float::chars_format::general, ctx.decimal_mark};
-    auto [ptr, ec] = fast_float::from_chars_advanced(value.data(), value.data() + value.size(), result, opts);
-    if (ec == std::errc() && ptr == value.data() + value.size()) {
+    const char* start = value.data();
+    size_t len = value.size();
+    // Strip leading '+' that fast_float doesn't accept (C++17 spec forbids it)
+    if (len > 0 && *start == '+') {
+      start++;
+      len--;
+    }
+    fast_float::parse_options ff_opts{fast_float::chars_format::general, ctx.decimal_mark};
+    auto [ptr, ec] = fast_float::from_chars_advanced(start, start + len, result, ff_opts);
+    if (ec == std::errc() && ptr == start + len) {
       ctx.float64_buffer->push_back(result);
       ctx.null_bitmap->push_back_valid();
-      return;
+    } else {
+      ctx.report_coercion_error(value);
+      ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());
+      ctx.null_bitmap->push_back_null();
     }
-    // fast_float doesn't handle leading '+' — strip it and retry
-    if (!value.empty() && value[0] == '+') {
-      auto rest = std::string_view(value.data() + 1, value.size() - 1);
-      auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
-      if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
-        ctx.float64_buffer->push_back(result);
-        ctx.null_bitmap->push_back_valid();
-        return;
-      }
-    }
-    report_coercion_error(ctx, value);
-    ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());
-    ctx.null_bitmap->push_back_null();
   }
   static void append_null_float64(FastArrowContext& ctx) {
     ctx.float64_buffer->push_back(std::numeric_limits<double>::quiet_NaN());
@@ -237,7 +239,7 @@ public:
       ctx.null_bitmap->push_back_valid();
       return;
     }
-    report_coercion_error(ctx, value);
+    ctx.report_coercion_error(value);
     ctx.bool_buffer->push_back(0);
     ctx.null_bitmap->push_back_null();
   }
@@ -258,7 +260,7 @@ public:
       ctx.int32_buffer->push_back(days);
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
       ctx.int32_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
@@ -280,7 +282,7 @@ public:
       ctx.int64_buffer->push_back(micros);
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
       ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
@@ -290,83 +292,77 @@ public:
     ctx.null_bitmap->push_back_null();
   }
 
-  // Time (stored as double seconds since midnight)
+  // Time (stores microseconds since midnight as int64)
   static void append_time(FastArrowContext& ctx, std::string_view value) {
     if (value.empty()) {
-      ctx.float64_buffer->push_back(0.0);
+      ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
       return;
     }
-    if (ctx.format_parser) {
-      ParsedDateTime dt;
-      bool ok;
-      if (ctx.format_string && !ctx.format_string->empty()) {
-        ok = ctx.format_parser->parse(value, *ctx.format_string, dt);
-      } else {
-        ok = ctx.format_parser->parse_auto_time(value, dt);
-      }
-      if (ok) {
-        ctx.float64_buffer->push_back(dt.to_seconds_since_midnight());
-        ctx.null_bitmap->push_back_valid();
-      } else {
-        report_coercion_error(ctx, value);
-        ctx.float64_buffer->push_back(0.0);
-        ctx.null_bitmap->push_back_null();
-      }
+    int64_t micros;
+    if (parse_time(value, micros)) {
+      ctx.int64_buffer->push_back(micros);
+      ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
-      ctx.float64_buffer->push_back(0.0);
+      ctx.report_coercion_error(value);
+      ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
   }
   static void append_null_time(FastArrowContext& ctx) {
-    ctx.float64_buffer->push_back(0.0);
+    ctx.int64_buffer->push_back(0);
     ctx.null_bitmap->push_back_null();
   }
 
-  // Format-aware date (uses FormatParser + format string)
-  static void append_date_formatted(FastArrowContext& ctx, std::string_view value) {
+  // Format-aware date
+  static void append_formatted_date(FastArrowContext& ctx, std::string_view value) {
     if (value.empty()) {
       ctx.int32_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
       return;
     }
     ParsedDateTime dt;
-    bool ok;
-    if (ctx.format_string && !ctx.format_string->empty()) {
-      ok = ctx.format_parser->parse(value, *ctx.format_string, dt);
-    } else {
-      ok = ctx.format_parser->parse_iso8601_date(value, dt);
-    }
-    if (ok && dt.is_valid_date()) {
-      ctx.int32_buffer->push_back(dt.to_days_since_epoch());
+    if (ctx.format_parser->parse(value, dt)) {
+      ctx.int32_buffer->push_back(dt.to_epoch_days());
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
       ctx.int32_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }
   }
 
-  // Format-aware timestamp (uses FormatParser + format string)
-  static void append_timestamp_formatted(FastArrowContext& ctx, std::string_view value) {
+  // Format-aware timestamp
+  static void append_formatted_timestamp(FastArrowContext& ctx, std::string_view value) {
     if (value.empty()) {
       ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
       return;
     }
     ParsedDateTime dt;
-    bool ok;
-    if (ctx.format_string && !ctx.format_string->empty()) {
-      ok = ctx.format_parser->parse(value, *ctx.format_string, dt);
-    } else {
-      ok = ctx.format_parser->parse_iso8601(value, dt);
-    }
-    if (ok && dt.is_valid_date()) {
-      ctx.int64_buffer->push_back(dt.to_micros_since_epoch());
+    if (ctx.format_parser->parse(value, dt)) {
+      ctx.int64_buffer->push_back(dt.to_epoch_micros());
       ctx.null_bitmap->push_back_valid();
     } else {
-      report_coercion_error(ctx, value);
+      ctx.report_coercion_error(value);
+      ctx.int64_buffer->push_back(0);
+      ctx.null_bitmap->push_back_null();
+    }
+  }
+
+  // Format-aware time
+  static void append_formatted_time(FastArrowContext& ctx, std::string_view value) {
+    if (value.empty()) {
+      ctx.int64_buffer->push_back(0);
+      ctx.null_bitmap->push_back_null();
+      return;
+    }
+    ParsedDateTime dt;
+    if (ctx.format_parser->parse(value, dt)) {
+      ctx.int64_buffer->push_back(dt.to_seconds_since_midnight_micros());
+      ctx.null_bitmap->push_back_valid();
+    } else {
+      ctx.report_coercion_error(value);
       ctx.int64_buffer->push_back(0);
       ctx.null_bitmap->push_back_null();
     }

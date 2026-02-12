@@ -33,6 +33,14 @@ cpp11::sexp empty_tibble_from_schema(
       result[ri] = v;
       break;
     }
+    case libvroom::DataType::TIME: {
+      SEXP v = Rf_allocVector(REALSXP, 0);
+      cpp11::writable::strings cls({"hms", "difftime"});
+      Rf_setAttrib(v, R_ClassSymbol, cls);
+      Rf_setAttrib(v, Rf_install("units"), Rf_mkString("secs"));
+      result[ri] = v;
+      break;
+    }
     case libvroom::DataType::BOOL:
       result[ri] = Rf_allocVector(LGLSXP, 0);
       break;

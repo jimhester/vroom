@@ -15,21 +15,17 @@ namespace libvroom {
 struct CsvOptions {
   std::string separator; // empty = auto-detect via DialectDetector
   char quote = '"';
-  bool escape_backslash = false; // Use backslash escaping instead of doubled quotes
-  std::string comment; // No comment by default (empty string)
+  bool escape_backslash = false; // Use backslash escaping (\") instead of doubled quotes ("")
+  std::string comment;           // No comment by default (empty string)
   bool has_header = true;
   bool skip_empty_rows = true;
-  bool trim_ws = true;  // Trim leading/trailing whitespace from fields
-  size_t skip = 0;      // Number of lines to skip at start of file (before header)
-  std::string null_values = "NA,null,NULL,"; // Comma-separated
+  bool guess_integer = true;                 // When false, integer-like values infer as FLOAT64
+  bool trim_ws = true;                       // Trim leading/trailing whitespace from fields
+  char decimal_mark = '.';                   // Decimal separator ('.' or ',')
+  size_t skip = 0;                           // Lines to skip before header
+  std::string null_values = "NA,null,NULL,"; // Comma-separated (trailing comma = empty is null)
   std::string true_values = "true,TRUE,True,T,t,yes,YES,Yes";
   std::string false_values = "false,FALSE,False,F,f,no,NO,No";
-
-  // Locale options
-  char decimal_mark = '.'; // Decimal separator for FLOAT64 parsing (default: '.')
-
-  // Type inference options
-  bool guess_integer = false; // When false, integer-like values infer as FLOAT64 (R parity)
 
   // Performance tuning
   size_t sample_rows = 1000; // Rows to sample for type inference
@@ -54,23 +50,22 @@ struct CsvOptions {
 
 // Fixed-width file parsing options
 struct FwfOptions {
-  std::vector<int> col_starts;        // 0-based byte offsets
+  std::vector<int> col_starts;        // 0-based byte offsets for each column
   std::vector<int> col_ends;          // Exclusive end offsets (-1 = to end of line)
-  std::vector<std::string> col_names; // Column names from R
+  std::vector<std::string> col_names; // Column names
   bool trim_ws = true;
-  std::string comment;
+  bool guess_integer = true; // When false, integer-like values infer as FLOAT64
+  std::string comment;       // No comment by default (empty string)
   bool skip_empty_rows = true;
   std::string null_values = "NA,null,NULL,";
   std::string true_values = "true,TRUE,True,T,t,yes,YES,Yes";
   std::string false_values = "false,FALSE,False,F,f,no,NO,No";
-  size_t skip = 0;                    // Number of data lines to skip after comments
-  int64_t max_rows = -1;             // Max rows to read (-1 = unlimited)
+  size_t skip = 0;       // Lines to skip after comments
+  int64_t max_rows = -1; // Max rows (-1 = unlimited)
   size_t sample_rows = 1000;
   size_t chunk_size = 0;
   size_t num_threads = 0;
   std::optional<CharEncoding> encoding;
-  ErrorMode error_mode = ErrorMode::DISABLED;
-  size_t max_errors = ErrorCollector::DEFAULT_MAX_ERRORS;
 };
 
 // Parquet writing options

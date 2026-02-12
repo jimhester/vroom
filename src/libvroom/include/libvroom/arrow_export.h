@@ -51,7 +51,7 @@ inline const char* get_arrow_format(DataType type) {
   case DataType::TIMESTAMP:
     return arrow_format::TIMESTAMP_US;
   case DataType::TIME:
-    return arrow_format::FLOAT64; // TIME stored as double seconds since midnight
+    return arrow_format::TIME64_US;
   default:
     return arrow_format::UTF8; // Default to string
   }

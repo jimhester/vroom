@@ -13,6 +13,7 @@ namespace libvroom {
 // Forward declarations from type_parsers.cpp
 bool parse_date(std::string_view value, int32_t& days_since_epoch);
 bool parse_timestamp(std::string_view value, int64_t& micros_since_epoch);
+bool parse_time(std::string_view value, int64_t& micros_since_midnight);
 
 // FastColumnContext - devirtualized column appending for the hot path
 // Uses function pointers resolved once at setup time to avoid virtual dispatch
@@ -34,6 +35,9 @@ public:
 
   AppendFn append_fn;
   AppendNullFn append_null_fn;
+
+  // Parsing options (set from CsvOptions before use)
+  char decimal_mark = '.';
 
   // Static inline append implementations - these get inlined and avoid virtual dispatch
 
@@ -174,24 +178,22 @@ public:
   // Note: empty strings are handled as nulls by caller, so we don't check here
   static void append_float64(FastColumnContext& ctx, std::string_view value) {
     double result;
-    auto [ptr, ec] = fast_float::from_chars(value.data(), value.data() + value.size(), result);
-    if (ec == std::errc() && ptr == value.data() + value.size()) {
+    const char* start = value.data();
+    size_t len = value.size();
+    // Strip leading '+' that fast_float doesn't accept (C++17 spec forbids it)
+    if (len > 0 && *start == '+') {
+      start++;
+      len--;
+    }
+    fast_float::parse_options ff_opts{fast_float::chars_format::general, ctx.decimal_mark};
+    auto [ptr, ec] = fast_float::from_chars_advanced(start, start + len, result, ff_opts);
+    if (ec == std::errc() && ptr == start + len) {
       ctx.float64_values->push_back(result);
       ctx.null_bitmap->push_back(false);
-      return;
+    } else {
+      ctx.float64_values->push_back(std::numeric_limits<double>::quiet_NaN());
+      ctx.null_bitmap->push_back(true);
     }
-    // fast_float doesn't handle leading '+' — strip it and retry
-    if (!value.empty() && value[0] == '+') {
-      auto rest = std::string_view(value.data() + 1, value.size() - 1);
-      auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
-      if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
-        ctx.float64_values->push_back(result);
-        ctx.null_bitmap->push_back(false);
-        return;
-      }
-    }
-    ctx.float64_values->push_back(std::numeric_limits<double>::quiet_NaN());
-    ctx.null_bitmap->push_back(true);
   }
   static void append_null_float64(FastColumnContext& ctx) {
     ctx.float64_values->push_back(std::numeric_limits<double>::quiet_NaN());
@@ -262,6 +264,27 @@ public:
     }
   }
   static void append_null_timestamp(FastColumnContext& ctx) {
+    ctx.int64_values->push_back(0);
+    ctx.null_bitmap->push_back(true);
+  }
+
+  // Time (stores microseconds since midnight as int64)
+  static void append_time(FastColumnContext& ctx, std::string_view value) {
+    if (value.empty()) {
+      ctx.int64_values->push_back(0);
+      ctx.null_bitmap->push_back(true);
+      return;
+    }
+    int64_t micros;
+    if (parse_time(value, micros)) {
+      ctx.int64_values->push_back(micros);
+      ctx.null_bitmap->push_back(false);
+    } else {
+      ctx.int64_values->push_back(0);
+      ctx.null_bitmap->push_back(true);
+    }
+  }
+  static void append_null_time(FastColumnContext& ctx) {
     ctx.int64_values->push_back(0);
     ctx.null_bitmap->push_back(true);
   }

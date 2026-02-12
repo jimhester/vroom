@@ -22,7 +22,7 @@ enum class DataType : uint8_t {
   STRING = 5,
   DATE = 6,      // ISO8601 date
   TIMESTAMP = 7, // ISO8601 timestamp
-  TIME = 8,      // Time of day (seconds since midnight)
+  TIME = 8,      // Time of day (HH:MM:SS)
   NA = 255       // Null/missing value
 };
 
@@ -32,9 +32,6 @@ inline bool can_promote(DataType from, DataType to) {
     return true;
   if (to == DataType::STRING)
     return true;
-  // TIME doesn't promote to/from numeric types
-  if (from == DataType::TIME || to == DataType::TIME)
-    return to == DataType::STRING;
   return static_cast<uint8_t>(from) <= static_cast<uint8_t>(to);
 }
 
@@ -47,16 +44,15 @@ inline DataType wider_type(DataType a, DataType b) {
   // STRING is the universal fallback
   if (a == DataType::STRING || b == DataType::STRING)
     return DataType::STRING;
-  // DATE/TIMESTAMP/TIME don't promote to numeric types
-  if ((a == DataType::DATE || a == DataType::TIMESTAMP || a == DataType::TIME) &&
-      (b >= DataType::BOOL && b <= DataType::FLOAT64))
+  // DATE/TIMESTAMP/TIME don't promote to numeric types or each other
+  bool a_temporal = (a == DataType::DATE || a == DataType::TIMESTAMP || a == DataType::TIME);
+  bool b_temporal = (b == DataType::DATE || b == DataType::TIMESTAMP || b == DataType::TIME);
+  if (a_temporal && (b >= DataType::BOOL && b <= DataType::FLOAT64))
     return DataType::STRING;
-  if ((b == DataType::DATE || b == DataType::TIMESTAMP || b == DataType::TIME) &&
-      (a >= DataType::BOOL && a <= DataType::FLOAT64))
+  if (b_temporal && (a >= DataType::BOOL && a <= DataType::FLOAT64))
     return DataType::STRING;
-  // TIME doesn't promote to DATE/TIMESTAMP or vice versa
-  if ((a == DataType::TIME && (b == DataType::DATE || b == DataType::TIMESTAMP)) ||
-      (b == DataType::TIME && (a == DataType::DATE || a == DataType::TIMESTAMP)))
+  // Different temporal types don't promote to each other
+  if (a_temporal && b_temporal && a != b)
     return DataType::STRING;
   return static_cast<uint8_t>(a) > static_cast<uint8_t>(b) ? a : b;
 }
@@ -141,8 +137,8 @@ struct ColumnSchema {
   std::string name;
   DataType type = DataType::STRING;
   bool nullable = true;
-  size_t index = 0;        // Original column index in CSV
-  std::string format;      // Format string for date/time/datetime parsing (empty = auto)
+  size_t index = 0;   // Original column index in CSV
+  std::string format; // Format string (e.g., for date/time parsing)
 };
 
 // Result type for operations that can fail
