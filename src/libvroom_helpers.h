@@ -63,7 +63,7 @@ void apply_schema_overrides(ReaderT& reader,
       // type_int == -1 means skip -> handled in R post-processing
     }
   }
-  reader.set_schema(schema_copy);
+  (void)reader.set_schema(schema_copy);
 }
 
 // Create an empty R tibble with correct column types from a schema.

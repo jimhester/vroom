@@ -333,7 +333,8 @@ vroom <- function(
       error = function(e) {
         msg <- conditionMessage(e)
         if (
-          grepl("All data was skipped", msg, fixed = TRUE) ||
+          grepl("All data skipped", msg, fixed = TRUE) ||
+            grepl("All data was skipped", msg, fixed = TRUE) ||
             grepl("Header row is empty", msg, fixed = TRUE) ||
             grepl("File contains only comment lines", msg, fixed = TRUE) ||
             grepl("Empty file", msg, fixed = TRUE)

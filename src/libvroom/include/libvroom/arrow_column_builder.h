@@ -64,13 +64,13 @@ public:
   static std::unique_ptr<ArrowColumnBuilder> create_time();
   static std::unique_ptr<ArrowColumnBuilder> create_string();
 
-  // Format-aware factory methods (use FormatParser for parsing)
+  // Format-aware factories
   static std::unique_ptr<ArrowColumnBuilder>
-  create_date_formatted(const FormatParser* parser, const std::string* format);
+  create_date(std::shared_ptr<const FormatParser> parser);
   static std::unique_ptr<ArrowColumnBuilder>
-  create_timestamp_formatted(const FormatParser* parser, const std::string* format);
+  create_timestamp(std::shared_ptr<const FormatParser> parser);
   static std::unique_ptr<ArrowColumnBuilder>
-  create_time_formatted(const FormatParser* parser, const std::string* format);
+  create_time(std::shared_ptr<const FormatParser> parser);
 };
 
 // Int32 column
@@ -386,11 +386,20 @@ public:
   const NullBitmap& null_bitmap() const override { return nulls_; }
   size_t null_count() const override { return nulls_.null_count_fast(); }
 
+  void set_format_parser(std::shared_ptr<const FormatParser> parser) {
+    format_parser_ = std::move(parser);
+  }
+
   FastArrowContext create_context() override {
     FastArrowContext ctx;
     ctx.int32_buffer = &values_;
     ctx.null_bitmap = &nulls_;
-    ctx.append_fn = FastArrowContext::append_date;
+    if (format_parser_) {
+      ctx.format_parser = format_parser_.get();
+      ctx.append_fn = FastArrowContext::append_formatted_date;
+    } else {
+      ctx.append_fn = FastArrowContext::append_date;
+    }
     ctx.append_null_fn = FastArrowContext::append_null_date;
     return ctx;
   }
@@ -435,9 +444,10 @@ public:
     out->private_data = schema_priv;
   }
 
-protected:
+private:
   NumericBuffer<int32_t> values_;
   NullBitmap nulls_;
+  std::shared_ptr<const FormatParser> format_parser_;
 };
 
 // Timestamp column (stored as int64 microseconds since epoch)
@@ -459,11 +469,20 @@ public:
   const NullBitmap& null_bitmap() const override { return nulls_; }
   size_t null_count() const override { return nulls_.null_count_fast(); }
 
+  void set_format_parser(std::shared_ptr<const FormatParser> parser) {
+    format_parser_ = std::move(parser);
+  }
+
   FastArrowContext create_context() override {
     FastArrowContext ctx;
     ctx.int64_buffer = &values_;
     ctx.null_bitmap = &nulls_;
-    ctx.append_fn = FastArrowContext::append_timestamp;
+    if (format_parser_) {
+      ctx.format_parser = format_parser_.get();
+      ctx.append_fn = FastArrowContext::append_formatted_timestamp;
+    } else {
+      ctx.append_fn = FastArrowContext::append_timestamp;
+    }
     ctx.append_null_fn = FastArrowContext::append_null_timestamp;
     return ctx;
   }
@@ -508,9 +527,93 @@ public:
     out->private_data = schema_priv;
   }
 
-protected:
+private:
   NumericBuffer<int64_t> values_;
   NullBitmap nulls_;
+  std::shared_ptr<const FormatParser> format_parser_;
+};
+
+// Time column (stored as int64 microseconds since midnight)
+class ArrowTimeColumnBuilder : public ArrowColumnBuilder {
+public:
+  DataType type() const override { return DataType::TIME; }
+  size_t size() const override { return values_.size(); }
+
+  void reserve(size_t capacity) override {
+    values_.reserve(capacity);
+    nulls_.reserve(capacity);
+  }
+
+  void clear() override {
+    values_.clear();
+    nulls_.clear();
+  }
+
+  const NullBitmap& null_bitmap() const override { return nulls_; }
+  size_t null_count() const override { return nulls_.null_count_fast(); }
+
+  void set_format_parser(std::shared_ptr<const FormatParser> parser) {
+    format_parser_ = std::move(parser);
+  }
+
+  FastArrowContext create_context() override {
+    FastArrowContext ctx;
+    ctx.int64_buffer = &values_;
+    ctx.null_bitmap = &nulls_;
+    if (format_parser_) {
+      ctx.format_parser = format_parser_.get();
+      ctx.append_fn = FastArrowContext::append_formatted_time;
+    } else {
+      ctx.append_fn = FastArrowContext::append_time;
+    }
+    ctx.append_null_fn = FastArrowContext::append_null_time;
+    return ctx;
+  }
+
+  void merge_from(ArrowColumnBuilder& other) override {
+    auto& typed_other = static_cast<ArrowTimeColumnBuilder&>(other);
+    values_.append_from(typed_other.values_);
+    nulls_.append_from(typed_other.nulls_);
+  }
+
+  const NumericBuffer<int64_t>& values() const { return values_; }
+
+  void export_to_arrow(ArrowArray* out, ArrowColumnPrivate* priv) const override {
+    priv->buffers.resize(2);
+    priv->buffers[0] = nulls_.has_nulls() ? nulls_.data() : nullptr;
+    priv->buffers[1] = values_.data();
+
+    out->length = static_cast<int64_t>(values_.size());
+    out->null_count = static_cast<int64_t>(nulls_.null_count_fast());
+    out->offset = 0;
+    out->n_buffers = 2;
+    out->n_children = 0;
+    out->buffers = priv->buffers.data();
+    out->children = nullptr;
+    out->dictionary = nullptr;
+    out->release = release_arrow_array;
+    out->private_data = priv;
+  }
+
+  void export_schema(ArrowSchema* out, const std::string& name) const override {
+    auto* schema_priv = new ArrowSchemaPrivate();
+    schema_priv->name_storage = name;
+
+    out->format = arrow_format::TIME64_US;
+    out->name = schema_priv->name_storage.c_str();
+    out->metadata = nullptr;
+    out->flags = ARROW_FLAG_NULLABLE;
+    out->n_children = 0;
+    out->children = nullptr;
+    out->dictionary = nullptr;
+    out->release = release_arrow_schema;
+    out->private_data = schema_priv;
+  }
+
+private:
+  NumericBuffer<int64_t> values_;
+  NullBitmap nulls_;
+  std::shared_ptr<const FormatParser> format_parser_;
 };
 
 // String column (contiguous buffer + offsets)
@@ -589,145 +692,6 @@ private:
   NullBitmap nulls_;
 };
 
-// Time column (stored as double seconds since midnight)
-class ArrowTimeColumnBuilder : public ArrowColumnBuilder {
-public:
-  DataType type() const override { return DataType::TIME; }
-  size_t size() const override { return values_.size(); }
-
-  void reserve(size_t capacity) override {
-    values_.reserve(capacity);
-    nulls_.reserve(capacity);
-  }
-
-  void clear() override {
-    values_.clear();
-    nulls_.clear();
-  }
-
-  const NullBitmap& null_bitmap() const override { return nulls_; }
-  size_t null_count() const override { return nulls_.null_count_fast(); }
-
-  FastArrowContext create_context() override {
-    FastArrowContext ctx;
-    ctx.float64_buffer = &values_;
-    ctx.null_bitmap = &nulls_;
-    ctx.append_fn = FastArrowContext::append_time;
-    ctx.append_null_fn = FastArrowContext::append_null_time;
-    return ctx;
-  }
-
-  void merge_from(ArrowColumnBuilder& other) override {
-    auto& typed_other = static_cast<ArrowTimeColumnBuilder&>(other);
-    values_.append_from(typed_other.values_);
-    nulls_.append_from(typed_other.nulls_);
-  }
-
-  const NumericBuffer<double>& values() const { return values_; }
-
-  void export_to_arrow(ArrowArray* out, ArrowColumnPrivate* priv) const override {
-    priv->buffers.resize(2);
-    priv->buffers[0] = nulls_.has_nulls() ? nulls_.data() : nullptr;
-    priv->buffers[1] = values_.data();
-
-    out->length = static_cast<int64_t>(values_.size());
-    out->null_count = static_cast<int64_t>(nulls_.null_count_fast());
-    out->offset = 0;
-    out->n_buffers = 2;
-    out->n_children = 0;
-    out->buffers = priv->buffers.data();
-    out->children = nullptr;
-    out->dictionary = nullptr;
-    out->release = release_arrow_array;
-    out->private_data = priv;
-  }
-
-  void export_schema(ArrowSchema* out, const std::string& name) const override {
-    auto* schema_priv = new ArrowSchemaPrivate();
-    schema_priv->name_storage = name;
-
-    out->format = arrow_format::FLOAT64;
-    out->name = schema_priv->name_storage.c_str();
-    out->metadata = nullptr;
-    out->flags = ARROW_FLAG_NULLABLE;
-    out->n_children = 0;
-    out->children = nullptr;
-    out->dictionary = nullptr;
-    out->release = release_arrow_schema;
-    out->private_data = schema_priv;
-  }
-
-protected:
-  NumericBuffer<double> values_;
-  NullBitmap nulls_;
-};
-
-// Format-aware date builder
-class ArrowFormattedDateColumnBuilder : public ArrowDateColumnBuilder {
-public:
-  ArrowFormattedDateColumnBuilder(const FormatParser* parser, const std::string* format)
-      : parser_(parser), format_(format ? *format : std::string()) {}
-
-  FastArrowContext create_context() override {
-    FastArrowContext ctx;
-    ctx.int32_buffer = &values_;
-    ctx.null_bitmap = &nulls_;
-    ctx.format_parser = parser_;
-    ctx.format_string = &format_;
-    ctx.append_fn = FastArrowContext::append_date_formatted;
-    ctx.append_null_fn = FastArrowContext::append_null_date;
-    return ctx;
-  }
-
-private:
-  const FormatParser* parser_;
-  std::string format_;
-};
-
-// Format-aware timestamp builder
-class ArrowFormattedTimestampColumnBuilder : public ArrowTimestampColumnBuilder {
-public:
-  ArrowFormattedTimestampColumnBuilder(const FormatParser* parser, const std::string* format)
-      : parser_(parser), format_(format ? *format : std::string()) {}
-
-  FastArrowContext create_context() override {
-    FastArrowContext ctx;
-    ctx.int64_buffer = &values_;
-    ctx.null_bitmap = &nulls_;
-    ctx.format_parser = parser_;
-    ctx.format_string = &format_;
-    ctx.append_fn = FastArrowContext::append_timestamp_formatted;
-    ctx.append_null_fn = FastArrowContext::append_null_timestamp;
-    return ctx;
-  }
-
-private:
-  const FormatParser* parser_;
-  std::string format_;
-};
-
-// Format-aware time builder
-class ArrowFormattedTimeColumnBuilder : public ArrowTimeColumnBuilder {
-public:
-  ArrowFormattedTimeColumnBuilder(const FormatParser* parser, const std::string* format)
-      : parser_(parser), format_(format ? *format : std::string()) {}
-
-  FastArrowContext create_context() override {
-    FastArrowContext ctx;
-    ctx.float64_buffer = &values_;
-    ctx.null_bitmap = &nulls_;
-    ctx.format_parser = parser_;
-    ctx.format_string = &format_;
-    ctx.append_fn = FastArrowContext::append_time;
-    ctx.append_null_fn = FastArrowContext::append_null_time;
-    return ctx;
-  }
-
-private:
-  const FormatParser* parser_;
-  std::string format_;
-};
-
 // Factory implementations
 inline std::unique_ptr<ArrowColumnBuilder> ArrowColumnBuilder::create(DataType type) {
   switch (type) {
@@ -784,18 +748,24 @@ inline std::unique_ptr<ArrowColumnBuilder> ArrowColumnBuilder::create_string() {
 }
 
 inline std::unique_ptr<ArrowColumnBuilder>
-ArrowColumnBuilder::create_date_formatted(const FormatParser* parser, const std::string* format) {
-  return std::make_unique<ArrowFormattedDateColumnBuilder>(parser, format);
+ArrowColumnBuilder::create_date(std::shared_ptr<const FormatParser> parser) {
+  auto builder = std::make_unique<ArrowDateColumnBuilder>();
+  builder->set_format_parser(std::move(parser));
+  return builder;
 }
 
 inline std::unique_ptr<ArrowColumnBuilder>
-ArrowColumnBuilder::create_timestamp_formatted(const FormatParser* parser, const std::string* format) {
-  return std::make_unique<ArrowFormattedTimestampColumnBuilder>(parser, format);
+ArrowColumnBuilder::create_timestamp(std::shared_ptr<const FormatParser> parser) {
+  auto builder = std::make_unique<ArrowTimestampColumnBuilder>();
+  builder->set_format_parser(std::move(parser));
+  return builder;
 }
 
 inline std::unique_ptr<ArrowColumnBuilder>
-ArrowColumnBuilder::create_time_formatted(const FormatParser* parser, const std::string* format) {
-  return std::make_unique<ArrowFormattedTimeColumnBuilder>(parser, format);
+ArrowColumnBuilder::create_time(std::shared_ptr<const FormatParser> parser) {
+  auto builder = std::make_unique<ArrowTimeColumnBuilder>();
+  builder->set_format_parser(std::move(parser));
+  return builder;
 }
 
 } // namespace libvroom

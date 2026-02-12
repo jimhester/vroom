@@ -52,17 +52,14 @@ public:
   // Get detected schema after opening
   const std::vector<ColumnSchema>& schema() const;
 
-  // Override inferred schema with explicit types.
-  // Call after open()/open_from_buffer(). Only overrides types for columns
-  // where the provided schema has a non-UNKNOWN type.
-  void set_schema(const std::vector<ColumnSchema>& schema);
+  // Override the inferred schema with user-provided types.
+  // Must be called after open() and before start_streaming()/read_all().
+  // Schema length must match the number of detected columns.
+  Result<bool> set_schema(const std::vector<ColumnSchema>& schema);
 
-  // Set a FormatParser for format-string-based datetime parsing.
-  // The parser is owned by the caller and must outlive the CsvReader.
-  void set_format_parser(std::unique_ptr<FormatParser> parser);
-
-  // Get the format parser (may be null)
-  const FormatParser* format_parser() const;
+  // Set locale for format-string datetime parsing.
+  // Must be called before read_all() / start_streaming().
+  void set_format_locale(const FormatLocale& locale);
 
   // Parse the file into column builders
   // Returns ParsedChunks with one vector of ArrowColumnBuilders per chunk
@@ -101,37 +98,34 @@ private:
   std::unique_ptr<Impl> impl_;
 };
 
-// Fixed-width file reader
+// Fixed-width file reader - orchestrates FWF parsing
 class FwfReader {
 public:
   explicit FwfReader(const FwfOptions& options);
   ~FwfReader();
 
-  // Open a FWF file
+  // Open a fixed-width file
   Result<bool> open(const std::string& path);
 
-  // Open from a pre-loaded buffer (e.g., connection data)
-  // Takes ownership of the buffer
+  // Open from a pre-loaded buffer
   Result<bool> open_from_buffer(AlignedBuffer buffer);
 
   // Get detected schema after opening
   const std::vector<ColumnSchema>& schema() const;
 
-  // Override inferred schema with explicit types.
-  // Call after open()/open_from_buffer(). Only overrides types for columns
-  // where the provided schema has a non-UNKNOWN type.
-  void set_schema(const std::vector<ColumnSchema>& schema);
+  // Override the inferred schema with user-provided types.
+  // Must be called after open() and before start_streaming().
+  // Schema length must match the number of detected columns.
+  Result<bool> set_schema(const std::vector<ColumnSchema>& schema);
 
-  // Streaming API: parse chunks on background threads, consume one at a time.
+  // Streaming API: start parsing, then consume chunks one at a time
   Result<bool> start_streaming();
-
-  // Returns the next parsed chunk in order, or nullopt when all chunks are consumed.
   std::optional<std::vector<std::unique_ptr<ArrowColumnBuilder>>> next_chunk();
 
-  // Get total number of rows (valid after start_streaming())
+  // Get total number of rows (only valid after all chunks consumed)
   size_t row_count() const;
 
-  // Get detected encoding (valid after open())
+  // Get detected encoding (valid after open/open_from_buffer)
   const EncodingResult& encoding() const;
 
 private:
@@ -239,6 +233,7 @@ public:
   static std::unique_ptr<ColumnBuilder> create_bool();
   static std::unique_ptr<ColumnBuilder> create_date();
   static std::unique_ptr<ColumnBuilder> create_timestamp();
+  static std::unique_ptr<ColumnBuilder> create_time();
 };
 
 // Parquet writer
@@ -273,7 +268,7 @@ private:
 // Chunk boundary finder
 class ChunkFinder {
 public:
-  explicit ChunkFinder(std::string_view separator = ",", char quote = '"', bool escape_backslash = false);
+  explicit ChunkFinder(char separator = ',', char quote = '"', bool escape_backslash = false);
 
   // Find all chunk boundaries in the data
   std::vector<ChunkBoundary> find_chunks(const char* data, size_t size, size_t target_chunk_size);
@@ -287,7 +282,7 @@ public:
   std::pair<size_t, size_t> count_rows(const char* data, size_t size);
 
 private:
-  std::string separator_;
+  char separator_;
   char quote_;
   bool escape_backslash_;
 };
@@ -425,6 +420,12 @@ void split_fields_scalar_into(const char* data, size_t size, char separator, cha
                               std::vector<FieldView>& fields // Output: cleared and populated
 );
 
+// Multi-byte separator overloads (delegates to SIMD for single-byte, scalar for multi-byte)
+std::vector<FieldView> split_fields(const char* data, size_t size, std::string_view separator,
+                                    char quote = '"');
+void split_fields_into(const char* data, size_t size, std::string_view separator, char quote,
+                       std::vector<FieldView>& fields);
+
 // ============================================================================
 // Date/Time parsing functions
 // ============================================================================
@@ -443,5 +444,12 @@ bool parse_date(std::string_view value, int32_t& days_since_epoch);
 //   YYYY-MM-DDTHH:MM:SS-HH:MM (timezone offset)
 // Returns true on success, false on parse error
 bool parse_timestamp(std::string_view value, int64_t& micros_since_epoch);
+
+// Parse time-of-day to microseconds since midnight
+// Supports formats:
+//   HH:MM:SS, HH:MM:SS.ffffff, HH:MM
+//   H:MM:SS AM/PM (12-hour, case-insensitive)
+// Returns true on success, false on parse error
+bool parse_time(std::string_view value, int64_t& micros_since_midnight);
 
 } // namespace libvroom

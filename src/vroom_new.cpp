@@ -1,7 +1,6 @@
 #include <cpp11.hpp>
 #include <libvroom/encoding.h>
 #include <libvroom/error.h>
-#include <libvroom/format_locale.h>
 #include <libvroom/format_parser.h>
 #include <libvroom/vroom.h>
 
@@ -10,6 +9,37 @@
 #include "vroom_arrow_chr.h"
 
 namespace {
+
+// Translate libvroom type coercion messages to R-friendly expected values.
+// libvroom produces: "Cannot convert to FLOAT64 in column 'x'"
+// R tests expect:    "a double"
+std::string translate_expected(const std::string& msg) {
+  const std::string prefix = "Cannot convert to ";
+  auto pos = msg.find(prefix);
+  if (pos == std::string::npos)
+    return msg;
+  auto type_start = pos + prefix.size();
+  auto type_end = msg.find(" in column", type_start);
+  if (type_end == std::string::npos)
+    return msg;
+  std::string type = msg.substr(type_start, type_end - type_start);
+
+  if (type == "FLOAT64")
+    return "a double";
+  if (type == "INT32")
+    return "an integer";
+  if (type == "INT64")
+    return "a big integer";
+  if (type == "DATE")
+    return "date in ISO8601";
+  if (type == "TIMESTAMP")
+    return "date in ISO8601";
+  if (type == "TIME")
+    return "time in ISO8601";
+  if (type == "BOOL")
+    return "1/0, T/F, TRUE/FALSE";
+  return msg;
+}
 
 // Convert libvroom ParseErrors to an R data frame (tibble-compatible).
 // Returns a list with vectors: row (integer), col (integer),
@@ -26,7 +56,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
     const auto& err = errors[static_cast<size_t>(i)];
     rows[i] = err.line > 0 ? static_cast<int>(err.line) : NA_INTEGER;
     cols[i] = err.column > 0 ? static_cast<int>(err.column) : NA_INTEGER;
-    expected[i] = err.message;
+    expected[i] = translate_expected(err.message);
     actual[i] = err.context;
   }
 
@@ -76,6 +106,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   libvroom::CsvOptions opts;
   opts.decimal_mark = locale_decimal_mark.empty() ? '.' : locale_decimal_mark[0];
   opts.escape_backslash = escape_backslash;
+  opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
   if (!delim.empty())
     opts.separator = delim;
   opts.quote = quote;
@@ -107,39 +138,31 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   apply_schema_overrides(reader, col_types, col_type_names);
 
   // Build FormatLocale from R locale parameters
-  libvroom::FormatLocale fmt_locale;
+  libvroom::FormatLocale fmt_locale = libvroom::FormatLocale::english();
   if (locale_mon_ab.size() >= 12) {
-    fmt_locale.month_abbr.clear();
     for (R_xlen_t i = 0; i < 12; ++i)
-      fmt_locale.month_abbr.push_back(std::string(locale_mon_ab[i]));
+      fmt_locale.month_abbrev[static_cast<size_t>(i)] = std::string(locale_mon_ab[i]);
   }
   if (locale_mon.size() >= 12) {
-    fmt_locale.month_full.clear();
     for (R_xlen_t i = 0; i < 12; ++i)
-      fmt_locale.month_full.push_back(std::string(locale_mon[i]));
+      fmt_locale.month_names[static_cast<size_t>(i)] = std::string(locale_mon[i]);
   }
   if (locale_day_ab.size() >= 7) {
-    fmt_locale.day_abbr.clear();
     for (R_xlen_t i = 0; i < 7; ++i)
-      fmt_locale.day_abbr.push_back(std::string(locale_day_ab[i]));
+      fmt_locale.day_abbrev[static_cast<size_t>(i)] = std::string(locale_day_ab[i]);
   }
   if (locale_am_pm.size() >= 2) {
-    fmt_locale.am_pm.clear();
-    for (R_xlen_t i = 0; i < 2; ++i)
-      fmt_locale.am_pm.push_back(std::string(locale_am_pm[i]));
+    fmt_locale.am = std::string(locale_am_pm[0]);
+    fmt_locale.pm = std::string(locale_am_pm[1]);
   }
-  if (!locale_date_format.empty())
+  if (!locale_date_format.empty()) {
     fmt_locale.date_format = locale_date_format;
-  if (!locale_time_format.empty())
+  }
+  if (!locale_time_format.empty()) {
     fmt_locale.time_format = locale_time_format;
-  if (!locale_decimal_mark.empty())
-    fmt_locale.decimal_mark = locale_decimal_mark[0];
-  if (!locale_tz.empty())
-    fmt_locale.default_tz = locale_tz;
+  }
 
-  // Create FormatParser and attach to reader
-  auto format_parser = std::make_unique<libvroom::FormatParser>(fmt_locale);
-  reader.set_format_parser(std::move(format_parser));
+  reader.set_format_locale(fmt_locale);
 
   // Apply format strings from R col_types to the schema
   if (col_formats.size() > 0) {
@@ -163,7 +186,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         schema_copy[static_cast<size_t>(j)].format = std::string(col_formats[j]);
       }
     }
-    reader.set_schema(schema_copy);
+    (void)reader.set_schema(schema_copy);
   }
 
   // Apply default column type to columns not explicitly typed
@@ -189,7 +212,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         schema_copy[i].type = static_cast<libvroom::DataType>(default_col_type);
       }
     }
-    reader.set_schema(schema_copy);
+    (void)reader.set_schema(schema_copy);
   }
 
   const auto& schema = reader.schema();
@@ -376,13 +399,15 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         } else if (type == libvroom::DataType::TIME) {
           auto& col = static_cast<libvroom::ArrowTimeColumnBuilder&>(*columns[i]);
           double* dest = REAL(numeric_vecs[i]) + row_offset;
-          const double* src = col.values().data();
+          const int64_t* src = col.values().data();
           if (!col.null_bitmap().has_nulls()) {
-            std::memcpy(dest, src, chunk_rows * sizeof(double));
+            for (size_t r = 0; r < chunk_rows; r++) {
+              dest[r] = static_cast<double>(src[r]) / 1e6;
+            }
           } else {
             const auto& nulls = col.null_bitmap();
             for (size_t r = 0; r < chunk_rows; r++) {
-              dest[r] = nulls.is_valid(r) ? src[r] : NA_REAL;
+              dest[r] = nulls.is_valid(r) ? static_cast<double>(src[r]) / 1e6 : NA_REAL;
             }
           }
 

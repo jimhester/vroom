@@ -1,3 +1,4 @@
+#include "libvroom/comment_util.h"
 #include "libvroom/vroom.h"
 
 #include <cctype>
@@ -72,11 +73,9 @@ DataType TypeInference::infer_field(std::string_view value) {
   }
 
   if (all_digits && has_digit) {
-    // When guess_integer is false (default, R parity), treat integer-like values as double
     if (!options_.guess_integer) {
       return DataType::FLOAT64;
     }
-
     // Check if it fits in int32
     if (value.size() <= 10) { // Max int32 is 10 digits
       // Try to parse as int32
@@ -100,19 +99,18 @@ DataType TypeInference::infer_field(std::string_view value) {
 
   // Try to parse as float
   double result;
-  fast_float::parse_options float_opts{fast_float::chars_format::general, options_.decimal_mark};
-  auto [ptr, ec] = fast_float::from_chars_advanced(value.data(), value.data() + value.size(), result, float_opts);
-  if (ec == std::errc() && ptr == value.data() + value.size()) {
-    return DataType::FLOAT64;
+  const char* float_start = value.data();
+  size_t float_len = value.size();
+  // Strip leading '+' that fast_float doesn't accept (C++17 spec forbids it)
+  if (float_len > 0 && *float_start == '+') {
+    float_start++;
+    float_len--;
   }
-
-  // fast_float doesn't handle leading '+' — strip it and retry
-  if (!value.empty() && value[0] == '+') {
-    auto rest = std::string_view(value.data() + 1, value.size() - 1);
-    auto [ptr2, ec2] = fast_float::from_chars(rest.data(), rest.data() + rest.size(), result);
-    if (ec2 == std::errc() && ptr2 == rest.data() + rest.size()) {
-      return DataType::FLOAT64;
-    }
+  fast_float::parse_options ff_opts{fast_float::chars_format::general, options_.decimal_mark};
+  auto [ptr, ec] =
+      fast_float::from_chars_advanced(float_start, float_start + float_len, result, ff_opts);
+  if (ec == std::errc() && ptr == float_start + float_len) {
+    return DataType::FLOAT64;
   }
 
   // Check for ISO8601 date format (YYYY-MM-DD or YYYY/MM/DD)
@@ -130,21 +128,31 @@ DataType TypeInference::infer_field(std::string_view value) {
   }
 
   // Check for ISO8601 timestamp format
-  // Formats: YYYY-MM-DDTHH:MM:SS, YYYY-MM-DD HH:MM:SS
+  // Formats: YYYY-MM-DDTHH:MM:SS, YYYY-MM-DD HH:MM:SS, YYYY-MM-DDTHH:MM, YYYY-MM-DDTHHMMSS
   // Optional: fractional seconds (.ffffff), timezone (Z, +HH:MM, -HH:MM)
-  if (value.size() >= 19 && (value[4] == '-' || value[4] == '/') &&
+  if (value.size() >= 15 && (value[4] == '-' || value[4] == '/') &&
       value[7] == value[4] && // Separators must match
-      (value[10] == 'T' || value[10] == ' ') && value[13] == ':' && value[16] == ':') {
-    // Validate hour, minute, second digits
-    bool valid_time = true;
-    for (int i : {11, 12, 14, 15, 17, 18}) {
-      if (!std::isdigit(static_cast<unsigned char>(value[i]))) {
-        valid_time = false;
-        break;
-      }
-    }
-    if (valid_time) {
+      (value[10] == 'T' || value[10] == ' ') &&
+      std::isdigit(static_cast<unsigned char>(value[11])) &&
+      std::isdigit(static_cast<unsigned char>(value[12]))) {
+    // Validate at least HH:MM (with colon) or HHMM (compact)
+    if (value.size() >= 16 && value[13] == ':' &&
+        std::isdigit(static_cast<unsigned char>(value[14])) &&
+        std::isdigit(static_cast<unsigned char>(value[15]))) {
+      // Standard format: YYYY-MM-DDTHH:MM[:SS]
       return DataType::TIMESTAMP;
+    }
+    if (value.size() >= 14 && std::isdigit(static_cast<unsigned char>(value[13]))) {
+      // Compact format: YYYY-MM-DDTHHMM[SS]
+      return DataType::TIMESTAMP;
+    }
+  }
+
+  // Check for time-of-day format (HH:MM:SS, HH:MM, with optional fractional seconds and AM/PM)
+  {
+    int64_t time_micros;
+    if (parse_time(value, time_micros)) {
+      return DataType::TIME;
     }
   }
 
@@ -161,40 +169,37 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
   }
 
   LineParser parser(options_);
-  ChunkFinder finder(options_.separator, options_.quote, options_.escape_backslash);
+  ChunkFinder finder(options_.separator.empty() ? ',' : options_.separator[0], options_.quote,
+                     options_.escape_backslash);
 
   size_t offset = 0;
   size_t rows_sampled = 0;
 
-  // Note: callers already pass data + header_end_offset, so no header skip needed here.
+  // Note: callers already pass data + header_end_offset, so we do not skip
+  // the header here.
 
   // Sample rows
   while (offset < size && rows_sampled < max_rows) {
-    // Skip empty lines
-    if (data[offset] == '\n') {
-      ++offset;
-      continue;
-    }
-    if (data[offset] == '\r') {
-      ++offset;
-      if (offset < size && data[offset] == '\n') ++offset;
-      continue;
+    // Skip empty lines before quote-aware row scanning
+    if (data[offset] == '\n' || data[offset] == '\r' || data[offset] == ' ' ||
+        data[offset] == '\t') {
+      // Check if entire line is whitespace
+      size_t scan = offset;
+      while (scan < size && data[scan] != '\n' && data[scan] != '\r' &&
+             (data[scan] == ' ' || data[scan] == '\t')) {
+        scan++;
+      }
+      if (scan >= size || data[scan] == '\n' || data[scan] == '\r') {
+        // Empty/whitespace-only line - skip past line ending without find_row_end
+        offset = skip_to_next_line(data, size, offset);
+        continue;
+      }
     }
 
-    // Skip comment lines BEFORE calling find_row_end, because find_row_end
-    // is quote-aware and may be confused by unmatched quotes in comment lines.
-    // Comment lines are skipped by scanning to EOL without quote tracking.
-    if (!options_.comment.empty() && offset + options_.comment.size() <= size &&
-        std::memcmp(data + offset, options_.comment.data(), options_.comment.size()) == 0) {
-      while (offset < size && data[offset] != '\n' && data[offset] != '\r') {
-        offset++;
-      }
-      if (offset < size && data[offset] == '\r') {
-        offset++;
-        if (offset < size && data[offset] == '\n') offset++;
-      } else if (offset < size && data[offset] == '\n') {
-        offset++;
-      }
+    // Skip comment lines BEFORE find_row_end to prevent unbalanced quotes
+    // in comment lines from corrupting quote parity tracking
+    if (starts_with_comment(data + offset, size - offset, options_.comment)) {
+      offset = skip_to_next_line(data, size, offset);
       continue;
     }
 
@@ -207,22 +212,20 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
     }
 
     // Parse this row's fields
-    const auto& sep = options_.separator;
-    auto matches_sep = [&](size_t pos) -> bool {
-      if (pos + sep.size() > row_end) return false;
-      return std::memcmp(data + pos, sep.data(), sep.size()) == 0;
-    };
     std::vector<std::string> fields;
     bool in_quote = false;
     std::string current_field;
 
-    // Helper to check for inline comment at position (outside quotes)
-    auto matches_comment_at = [&](size_t pos) -> bool {
-      if (options_.comment.empty() || pos + options_.comment.size() > row_end) return false;
-      return std::memcmp(data + pos, options_.comment.data(), options_.comment.size()) == 0;
+    // Helper to match separator at a given position
+    auto matches_sep_at = [&](size_t pos) -> bool {
+      if (options_.separator.empty())
+        return false;
+      if (options_.separator.size() == 1)
+        return data[pos] == options_.separator[0];
+      return pos + options_.separator.size() <= row_end &&
+             std::memcmp(data + pos, options_.separator.data(), options_.separator.size()) == 0;
     };
 
-    bool inline_comment_hit = false;
     for (size_t i = offset; i < row_end; ++i) {
       char c = data[i];
 
@@ -238,29 +241,39 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
         break;
       }
 
-      // Check for inline comment (outside quotes) — truncate field and stop row
-      if (!in_quote && matches_comment_at(i)) {
-        if (options_.trim_ws) {
-          while (!current_field.empty() &&
-                 (current_field.back() == ' ' || current_field.back() == '\t')) {
-            current_field.pop_back();
-          }
-        }
-        fields.push_back(std::move(current_field));
-        inline_comment_hit = true;
-        break;
-      }
-
       if (options_.escape_backslash && c == '\\' && i + 1 < row_end) {
-        current_field += data[++i];
+        char next = data[i + 1];
+        switch (next) {
+        case '\\':
+          current_field += '\\';
+          break;
+        case 'n':
+          current_field += '\n';
+          break;
+        case 't':
+          current_field += '\t';
+          break;
+        case 'r':
+          current_field += '\r';
+          break;
+        default:
+          if (next == options_.quote) {
+            current_field += options_.quote;
+          } else {
+            current_field += next;
+          }
+          break;
+        }
+        ++i;
       } else if (c == options_.quote) {
-        if (in_quote && i + 1 < row_end && data[i + 1] == options_.quote) {
+        if (!options_.escape_backslash && in_quote && i + 1 < row_end &&
+            data[i + 1] == options_.quote) {
           current_field += options_.quote;
           ++i;
         } else {
           in_quote = !in_quote;
         }
-      } else if (!in_quote && matches_sep(i)) {
+      } else if (!in_quote && matches_sep_at(i)) {
         if (options_.trim_ws) {
           while (!current_field.empty() &&
                  (current_field.back() == ' ' || current_field.back() == '\t')) {
@@ -269,7 +282,8 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
         }
         fields.push_back(std::move(current_field));
         current_field.clear();
-        i += sep.size() - 1; // Loop will ++i
+        // Advance past multi-byte separator (loop will do +1)
+        i += options_.separator.size() - 1;
       } else {
         if (options_.trim_ws && current_field.empty() && !in_quote && (c == ' ' || c == '\t')) {
           continue;
@@ -278,8 +292,8 @@ std::vector<DataType> TypeInference::infer_from_sample(const char* data, size_t 
       }
     }
 
-    // If the line ended without a newline and without inline comment
-    if (!inline_comment_hit && !current_field.empty()) {
+    // If the line ended without a newline
+    if (!current_field.empty()) {
       if (options_.trim_ws) {
         while (!current_field.empty() &&
                (current_field.back() == ' ' || current_field.back() == '\t')) {

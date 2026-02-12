@@ -38,7 +38,7 @@
   auto schema_copy = reader.schema();
   if (!schema_copy.empty()) {
     schema_copy[0].type = libvroom::DataType::STRING;
-    reader.set_schema(schema_copy);
+    (void)reader.set_schema(schema_copy);
   }
 
   auto stream_result = reader.start_streaming();

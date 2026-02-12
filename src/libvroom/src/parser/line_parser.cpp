@@ -10,9 +10,6 @@ LineParser::LineParser(const CsvOptions& options) : options_(options) {
 
 void LineParser::init_null_values() {
   std::string_view null_values = options_.null_values;
-  if (null_values.empty()) {
-    return;
-  }
   size_t start = 0;
 
   while (start <= null_values.size()) {
@@ -42,22 +39,19 @@ std::vector<std::string> LineParser::parse_header(const char* data, size_t size)
     return headers;
   }
 
-  const auto& sep = options_.separator;
-  auto matches_sep = [&](size_t pos) -> bool {
-    if (pos + sep.size() > size) return false;
-    return std::memcmp(data + pos, sep.data(), sep.size()) == 0;
+  // Helper to match separator at a given position
+  auto matches_sep_at = [&](size_t pos) -> bool {
+    if (options_.separator.empty())
+      return false;
+    if (options_.separator.size() == 1)
+      return data[pos] == options_.separator[0];
+    return pos + options_.separator.size() <= size &&
+           std::memcmp(data + pos, options_.separator.data(), options_.separator.size()) == 0;
   };
 
   bool in_quote = false;
   std::string current_field;
   current_field.reserve(64);
-
-  // Helper to check for inline comment at position
-  const auto& cmt = options_.comment;
-  auto matches_comment_at = [&](size_t pos) -> bool {
-    if (cmt.empty() || pos + cmt.size() > size) return false;
-    return std::memcmp(data + pos, cmt.data(), cmt.size()) == 0;
-  };
 
   for (size_t i = 0; i < size; ++i) {
     char c = data[i];
@@ -74,29 +68,40 @@ std::vector<std::string> LineParser::parse_header(const char* data, size_t size)
       break;
     }
 
-    // Check for inline comment (outside quotes) — truncate field and stop
-    if (!in_quote && matches_comment_at(i)) {
-      // Trim trailing whitespace from current field
-      while (!current_field.empty() &&
-             (current_field.back() == ' ' || current_field.back() == '\t')) {
-        current_field.pop_back();
-      }
-      headers.push_back(std::move(current_field));
-      current_field.clear();
-      break;
-    }
-
     if (options_.escape_backslash && c == '\\' && i + 1 < size) {
-      current_field += data[++i];
+      // Backslash escape: add the escaped character
+      char next = data[i + 1];
+      switch (next) {
+      case '\\':
+        current_field += '\\';
+        break;
+      case 'n':
+        current_field += '\n';
+        break;
+      case 't':
+        current_field += '\t';
+        break;
+      case 'r':
+        current_field += '\r';
+        break;
+      default:
+        if (next == options_.quote) {
+          current_field += options_.quote;
+        } else {
+          current_field += next;
+        }
+        break;
+      }
+      ++i; // Skip escaped character
     } else if (c == options_.quote) {
-      if (in_quote && i + 1 < size && data[i + 1] == options_.quote) {
-        // Escaped quote (doubled)
+      if (!options_.escape_backslash && in_quote && i + 1 < size && data[i + 1] == options_.quote) {
+        // Escaped quote (doubled) - only in non-backslash mode
         current_field += options_.quote;
         ++i; // Skip next quote
       } else {
         in_quote = !in_quote;
       }
-    } else if (!in_quote && matches_sep(i)) {
+    } else if (!in_quote && matches_sep_at(i)) {
       // Trim trailing whitespace from field
       while (!current_field.empty() &&
              (current_field.back() == ' ' || current_field.back() == '\t')) {
@@ -104,7 +109,8 @@ std::vector<std::string> LineParser::parse_header(const char* data, size_t size)
       }
       headers.push_back(std::move(current_field));
       current_field.clear();
-      i += sep.size() - 1; // Loop will ++i
+      // Advance past multi-byte separator (loop will do +1)
+      i += options_.separator.size() - 1;
     } else {
       // Skip leading whitespace if field is empty and not in quote
       if (current_field.empty() && !in_quote && (c == ' ' || c == '\t')) {
@@ -132,10 +138,14 @@ size_t LineParser::parse_line(const char* data, size_t size,
     return 0;
   }
 
-  const auto& sep = options_.separator;
-  auto matches_sep = [&](size_t pos) -> bool {
-    if (pos + sep.size() > size) return false;
-    return std::memcmp(data + pos, sep.data(), sep.size()) == 0;
+  // Helper to match separator at a given position
+  auto matches_sep_at = [&](size_t pos) -> bool {
+    if (options_.separator.empty())
+      return false;
+    if (options_.separator.size() == 1)
+      return data[pos] == options_.separator[0];
+    return pos + options_.separator.size() <= size &&
+           std::memcmp(data + pos, options_.separator.data(), options_.separator.size()) == 0;
   };
 
   bool in_quote = false;
@@ -166,16 +176,39 @@ size_t LineParser::parse_line(const char* data, size_t size,
     }
 
     if (options_.escape_backslash && c == '\\' && i + 1 < size) {
-      current_field += data[++i];
+      // Backslash escape: add the escaped character
+      char next = data[i + 1];
+      switch (next) {
+      case '\\':
+        current_field += '\\';
+        break;
+      case 'n':
+        current_field += '\n';
+        break;
+      case 't':
+        current_field += '\t';
+        break;
+      case 'r':
+        current_field += '\r';
+        break;
+      default:
+        if (next == options_.quote) {
+          current_field += options_.quote;
+        } else {
+          current_field += next;
+        }
+        break;
+      }
+      ++i; // Skip escaped character
     } else if (c == options_.quote) {
-      if (in_quote && i + 1 < size && data[i + 1] == options_.quote) {
-        // Escaped quote (doubled)
+      if (!options_.escape_backslash && in_quote && i + 1 < size && data[i + 1] == options_.quote) {
+        // Escaped quote (doubled) - only in non-backslash mode
         current_field += options_.quote;
         ++i;
       } else {
         in_quote = !in_quote;
       }
-    } else if (!in_quote && matches_sep(i)) {
+    } else if (!in_quote && matches_sep_at(i)) {
       // End of field - trim and append
       while (!current_field.empty() &&
              (current_field.back() == ' ' || current_field.back() == '\t')) {
@@ -190,7 +223,8 @@ size_t LineParser::parse_line(const char* data, size_t size,
 
       current_field.clear();
       ++field_index;
-      i += sep.size() - 1; // Loop will ++i
+      // Advance past multi-byte separator (loop will do +1)
+      i += options_.separator.size() - 1;
     } else {
       // Skip leading whitespace if field is empty and not in quote
       if (current_field.empty() && !in_quote && (c == ' ' || c == '\t')) {

@@ -42,28 +42,45 @@ inline std::string unescape_quotes(std::string_view value, char quote,
   return result;
 }
 
-// Helper function to unescape backslash-escaped characters in a field.
-// Strips each backslash and keeps the character after it (no C-style conversion).
-// E.g., \, -> ,   \" -> "   \\ -> \   \n -> n (literal, not newline)
-inline std::string unescape_backslash(std::string_view value) {
-  // Fast path: no backslash
+// Helper function to unescape backslash escape sequences in a field
+// Handles: \\ -> \, \" -> quote, \n -> newline, \t -> tab, \r -> CR
+// Unknown escapes: drop backslash, keep character
+// Trailing backslash: keep as-is
+inline std::string unescape_backslash(std::string_view value, char quote) {
   if (value.find('\\') == std::string_view::npos) {
     return std::string(value);
   }
-
   std::string result;
   result.reserve(value.size());
-
   for (size_t i = 0; i < value.size(); ++i) {
     if (value[i] == '\\' && i + 1 < value.size()) {
-      // Skip the backslash, keep the next character
+      char next = value[i + 1];
+      switch (next) {
+      case '\\':
+        result += '\\';
+        break;
+      case 'n':
+        result += '\n';
+        break;
+      case 't':
+        result += '\t';
+        break;
+      case 'r':
+        result += '\r';
+        break;
+      default:
+        if (next == quote) {
+          result += quote;
+        } else {
+          result += next;
+        }
+        break;
+      }
       ++i;
-      result += value[i];
     } else {
       result += value[i];
     }
   }
-
   return result;
 }
 
@@ -73,9 +90,7 @@ inline std::string unescape_backslash(std::string_view value) {
 class NullChecker {
 public:
   explicit NullChecker(const CsvOptions& options) { init(options.null_values); }
-
   explicit NullChecker(const FwfOptions& options) { init(options.null_values); }
-
   explicit NullChecker(std::string_view null_values_csv) { init(null_values_csv); }
 
   bool is_null(std::string_view value) const {
@@ -98,34 +113,41 @@ public:
     return false;
   }
 
-private:
-  void init(std::string_view null_values_csv) {
-    // When null_values is explicitly empty, no values (including empty strings)
-    // should be treated as null
-    if (null_values_csv.empty()) {
-      empty_is_null_ = false;
-      return;
+  // Public init for deferred initialization (resets and re-parses)
+  void init(std::string_view null_values) {
+    null_values_.clear();
+    max_null_length_ = 0;
+    empty_is_null_ = false;
+
+    if (null_values.empty()) {
+      return; // Empty null_values = nothing is null
     }
+
     size_t start = 0;
-    while (start < null_values_csv.size()) {
-      size_t end = null_values_csv.find(',', start);
+
+    // Use <= to handle trailing comma (e.g. "NA," has an empty token at end)
+    while (start <= null_values.size()) {
+      size_t end = null_values.find(',', start);
       if (end == std::string_view::npos) {
-        end = null_values_csv.size();
+        end = null_values.size();
       }
-      std::string_view null_val = null_values_csv.substr(start, end - start);
+
+      std::string_view null_val = null_values.substr(start, end - start);
       if (!null_val.empty()) {
         null_values_.emplace_back(null_val);
         max_null_length_ = std::max(max_null_length_, null_val.size());
       } else {
         empty_is_null_ = true;
       }
+
       start = end + 1;
     }
   }
 
+private:
   std::vector<std::string> null_values_;
   size_t max_null_length_ = 0;
-  bool empty_is_null_ = false; // Default: empty strings are NOT null (overridden by trailing comma in null_values)
+  bool empty_is_null_ = false; // Only true when null_values has trailing comma
 };
 
 } // namespace libvroom
