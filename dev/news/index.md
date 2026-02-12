@@ -2,6 +2,66 @@
 
 ## vroom (development version)
 
+### libvroom backend
+
+vroom’s CSV/TSV reading engine has been replaced with libvroom, a
+high-performance SIMD-accelerated parser. The new backend is
+significantly faster for initial indexing and produces Arrow-format
+columns internally.
+
+#### Behavioral differences from the legacy parser
+
+The libvroom backend differs from the legacy parser in a few edge cases.
+These are intentional — in most cases the new behavior is more correct
+per RFC 4180, and the old behavior was a quirk of the legacy
+implementation.
+
+- **Whitespace around quoted fields**: The legacy parser stripped
+  whitespace outside and inside quotes (e.g., `"foo"` → `foo`). libvroom
+  treats outer whitespace as part of the field and preserves quotes as
+  literal characters when whitespace appears outside them. This matches
+  RFC 4180 strictly.
+
+- **Extra fields in rows**: When a row has more fields than the header,
+  the legacy parser concatenated the extras into the last column (e.g.,
+  `"4,5,6,7"`). libvroom truncates extra fields to match the header
+  column count.
+
+- **Multi-file column validation**: When reading multiple files, the
+  legacy parser errored on inconsistent column counts or names across
+  files. libvroom pads with `NA` and uses the first file’s column names,
+  which is more permissive.
+
+- **NUL bytes in strings**: libvroom preserves NUL bytes in string
+  fields. The legacy parser replaced or stripped them.
+
+- **Type guess sampling**: The legacy parser special-cased the last row
+  when guessing column types. libvroom samples from the first N rows
+  uniformly.
+
+- **Big integer overflow**: Values exceeding `2^63 - 1` currently clamp
+  to `INT64_MAX` instead of returning `NA`. This is tracked in
+  [\#71](https://github.com/tidyverse/vroom/issues/71).
+
+#### `I()` inline string limitations
+
+When passing inline strings via
+[`I()`](https://rdrr.io/r/base/AsIs.html) (primarily used in tests), a
+few features behave differently than with file paths:
+
+- Embedded newlines in quoted fields may not parse correctly with
+  [`I()`](https://rdrr.io/r/base/AsIs.html) input. File-backed reads
+  handle embedded newlines correctly.
+
+- Bare CR (`\r` without `\n`) line endings are not supported in
+  [`I()`](https://rdrr.io/r/base/AsIs.html) input.
+
+- UTF-16/32 BOM stripping is not performed on raw
+  [`I()`](https://rdrr.io/r/base/AsIs.html) input. Use
+  `locale(encoding = )` when reading from files.
+
+These limitations do not affect normal file-based reads.
+
 - [vroom.tidyverse.org](https://vroom.tidyverse.org/) is the new home of
   vroom’s website, catching up to the much earlier move (April 2022) of
   vroom’s GitHub repository from the r-lib organization to the

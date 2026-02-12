@@ -45,6 +45,27 @@
 
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="development version" id="vroom-development-version">vroom (development version)<a class="anchor" aria-label="anchor" href="#vroom-development-version"></a></h2>
+<div class="section level3">
+<h3 id="libvroom-backend-development-version">libvroom backend<a class="anchor" aria-label="anchor" href="#libvroom-backend-development-version"></a></h3>
+<p>vroom’s CSV/TSV reading engine has been replaced with libvroom, a high-performance SIMD-accelerated parser. The new backend is significantly faster for initial indexing and produces Arrow-format columns internally.</p>
+<div class="section level4">
+<h4 id="behavioral-differences-from-the-legacy-parser-development-version">Behavioral differences from the legacy parser<a class="anchor" aria-label="anchor" href="#behavioral-differences-from-the-legacy-parser-development-version"></a></h4>
+<p>The libvroom backend differs from the legacy parser in a few edge cases. These are intentional — in most cases the new behavior is more correct per RFC 4180, and the old behavior was a quirk of the legacy implementation.</p>
+<ul><li><p><strong>Whitespace around quoted fields</strong>: The legacy parser stripped whitespace outside and inside quotes (e.g., <code>"foo"</code> → <code>foo</code>). libvroom treats outer whitespace as part of the field and preserves quotes as literal characters when whitespace appears outside them. This matches RFC 4180 strictly.</p></li>
+<li><p><strong>Extra fields in rows</strong>: When a row has more fields than the header, the legacy parser concatenated the extras into the last column (e.g., <code>"4,5,6,7"</code>). libvroom truncates extra fields to match the header column count.</p></li>
+<li><p><strong>Multi-file column validation</strong>: When reading multiple files, the legacy parser errored on inconsistent column counts or names across files. libvroom pads with <code>NA</code> and uses the first file’s column names, which is more permissive.</p></li>
+<li><p><strong>NUL bytes in strings</strong>: libvroom preserves NUL bytes in string fields. The legacy parser replaced or stripped them.</p></li>
+<li><p><strong>Type guess sampling</strong>: The legacy parser special-cased the last row when guessing column types. libvroom samples from the first N rows uniformly.</p></li>
+<li><p><strong>Big integer overflow</strong>: Values exceeding <code>2^63 - 1</code> currently clamp to <code>INT64_MAX</code> instead of returning <code>NA</code>. This is tracked in <a href="https://github.com/tidyverse/vroom/issues/71" class="external-link">#71</a>.</p></li>
+</ul></div>
+<div class="section level4">
+<h4 id="i-inline-string-limitations-development-version">
+<code>I()</code> inline string limitations<a class="anchor" aria-label="anchor" href="#i-inline-string-limitations-development-version"></a></h4>
+<p>When passing inline strings via <code><a href="https://rdrr.io/r/base/AsIs.html" class="external-link">I()</a></code> (primarily used in tests), a few features behave differently than with file paths:</p>
+<ul><li><p>Embedded newlines in quoted fields may not parse correctly with <code><a href="https://rdrr.io/r/base/AsIs.html" class="external-link">I()</a></code> input. File-backed reads handle embedded newlines correctly.</p></li>
+<li><p>Bare CR (<code>\r</code> without <code>\n</code>) line endings are not supported in <code><a href="https://rdrr.io/r/base/AsIs.html" class="external-link">I()</a></code> input.</p></li>
+<li><p>UTF-16/32 BOM stripping is not performed on raw <code><a href="https://rdrr.io/r/base/AsIs.html" class="external-link">I()</a></code> input. Use <code>locale(encoding = )</code> when reading from files.</p></li>
+</ul><p>These limitations do not affect normal file-based reads.</p>
 <ul><li><p><a href="https://vroom.tidyverse.org/">vroom.tidyverse.org</a> is the new home of vroom’s website, catching up to the much earlier move (April 2022) of vroom’s GitHub repository from the r-lib organization to the tidyverse. The motivation for that was to make it easier to transfer issues between these two closely connected packages.</p></li>
 <li><p>The <code>path</code> parameter has been removed from <code><a href="../reference/vroom_write.html">vroom_write()</a></code>. This parameter was deprecated in vroom 1.5.0 (2021-06-14) in favor of the <code>file</code> parameter (<a href="https://github.com/tidyverse/vroom/issues/575" class="external-link">#575</a>).</p></li>
 <li><p>The function <code>vroom_altrep_opts()</code> and the argument <code>vroom(altrep_opts =)</code> have been removed. They were deprecated in favor of <code><a href="../reference/vroom_altrep.html">vroom_altrep()</a></code> and <code>altrep =</code>, respectively, in v1.2.0 (2020-01-13). Also applies to <code>vroom_fwf(altrep_opts =)</code> and <code>vroom_lines(altrep_opts =)</code> (<a href="https://github.com/tidyverse/vroom/issues/575" class="external-link">#575</a>).</p></li>
@@ -55,6 +76,8 @@
 <li><p><code>vroom(..., n_max = 0, col_names = c(...))</code> with a connection (compressed file, URL, raw connection) no longer produces a “negative length vectors are not allowed” error or crashes R (<a href="https://github.com/tidyverse/vroom/issues/539" class="external-link">#539</a>).</p></li>
 <li><p><code>vroom_fwf(..., n_max = 0)</code> with a connection no longer segfaults (<a href="https://github.com/tidyverse/vroom/issues/590" class="external-link">#590</a>).</p></li>
 </ul></div>
+</div>
+</div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="1.6.7" id="vroom-167">vroom 1.6.7<a class="anchor" aria-label="anchor" href="#vroom-167"></a></h2><p class="text-muted">CRAN release: 2025-11-28</p>
 <ul><li><p><code>locale(encoding =)</code> now warns, instead of errors, when the encoding cannot be found in <code><a href="https://rdrr.io/r/base/iconv.html" class="external-link">iconvlist()</a></code> return value. This removes an unnecessary blocker on platforms like Alpine Linux where the output doesn’t reflect actual capabilities.</p></li>
