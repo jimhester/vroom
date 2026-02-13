@@ -497,7 +497,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         break;
       }
     }
-    if (!has_string_cols || use_altrep) {
+    if (!has_string_cols) {
       return attach_problems(
           columns_to_r_chunked(chunks, schema, total_rows));
     }

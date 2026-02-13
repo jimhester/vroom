@@ -423,6 +423,7 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
 
 // Simple newline counting without quote awareness (for unquoted data).
 // Much faster than dual-state analysis since it skips quote parity entirely.
+// Note: only counts '\n', not standalone '\r' (pre-OSX Mac line endings).
 HWY_NOINLINE size_t CountRowsNewlineOnlyImpl(const char* data, size_t size) {
   size_t row_count = 0;
   if (size == 0) return 0;
