@@ -141,6 +141,47 @@ static bool has_windows1252_bytes(const uint8_t* data, size_t size) {
   return false;
 }
 
+EncodingResult detect_bom(const uint8_t* data, size_t size) {
+  EncodingResult result;
+  result.encoding = CharEncoding::UTF8;
+  result.confidence = 1.0;
+
+  if (size >= 4) {
+    if (data[0] == 0xFF && data[1] == 0xFE && data[2] == 0x00 && data[3] == 0x00) {
+      result.encoding = CharEncoding::UTF32_LE;
+      result.bom_length = 4;
+      result.needs_transcoding = true;
+      return result;
+    }
+    if (data[0] == 0x00 && data[1] == 0x00 && data[2] == 0xFE && data[3] == 0xFF) {
+      result.encoding = CharEncoding::UTF32_BE;
+      result.bom_length = 4;
+      result.needs_transcoding = true;
+      return result;
+    }
+  }
+  if (size >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
+    result.encoding = CharEncoding::UTF8_BOM;
+    result.bom_length = 3;
+    return result;
+  }
+  if (size >= 2) {
+    if (data[0] == 0xFF && data[1] == 0xFE) {
+      result.encoding = CharEncoding::UTF16_LE;
+      result.bom_length = 2;
+      result.needs_transcoding = true;
+      return result;
+    }
+    if (data[0] == 0xFE && data[1] == 0xFF) {
+      result.encoding = CharEncoding::UTF16_BE;
+      result.bom_length = 2;
+      result.needs_transcoding = true;
+      return result;
+    }
+  }
+  return result;
+}
+
 EncodingResult detect_encoding(const uint8_t* data, size_t size) {
   EncodingResult result;
 

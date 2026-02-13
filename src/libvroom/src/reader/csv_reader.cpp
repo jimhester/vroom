@@ -470,7 +470,7 @@ Result<bool> CsvReader::open(const std::string& path) {
       // User-specified encoding
       impl_->detected_encoding.encoding = *impl_->options.encoding;
       // Detect BOM even when encoding is forced
-      auto bom_result = detect_encoding(raw, raw_size);
+      auto bom_result = detect_bom(raw, raw_size);
       if (bom_result.encoding == *impl_->options.encoding ||
           (*impl_->options.encoding == CharEncoding::UTF8 &&
            bom_result.encoding == CharEncoding::UTF8_BOM)) {
@@ -674,7 +674,7 @@ Result<bool> CsvReader::open_from_buffer(AlignedBuffer buffer) {
 
     if (impl_->options.encoding.has_value()) {
       impl_->detected_encoding.encoding = *impl_->options.encoding;
-      auto bom_result = detect_encoding(raw, raw_size);
+      auto bom_result = detect_bom(raw, raw_size);
       if (bom_result.encoding == *impl_->options.encoding ||
           (*impl_->options.encoding == CharEncoding::UTF8 &&
            bom_result.encoding == CharEncoding::UTF8_BOM)) {
