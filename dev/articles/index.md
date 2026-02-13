@@ -3,8 +3,8 @@
 ### All vignettes
 
 - [libvroom
-  Benchmarks](https://vroom.tidyverse.org/dev/articles/benchmarks-libvroom.md):
+  Benchmarks](https://jimhester.github.io/vroom/dev/articles/benchmarks-libvroom.md):
 - [Vroom
-  Benchmarks](https://vroom.tidyverse.org/dev/articles/benchmarks.md):
+  Benchmarks](https://jimhester.github.io/vroom/dev/articles/benchmarks.md):
 - [Get started with
-  vroom](https://vroom.tidyverse.org/dev/articles/vroom.md):
+  vroom](https://jimhester.github.io/vroom/dev/articles/vroom.md):

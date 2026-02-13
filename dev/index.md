@@ -184,7 +184,7 @@ the code used to retrieve the data and perform the benchmarks.
 # Environment variables
 
 In addition to the arguments to the
-[`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md)
+[`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md)
 function, you can control the behavior of vroom with a few environment
 variables. Generally these will not need to be set by most users.
 

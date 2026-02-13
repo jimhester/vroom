@@ -29,8 +29,8 @@ guess_type(
 
   The locale controls defaults that vary from place to place. The
   default locale is US-centric (like R), but you can use
-  [`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md) to
-  create your own locale that controls things like the default time
+  [`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
+  to create your own locale that controls things like the default time
   zone, encoding, decimal mark, big mark, and day/month names.
 
 - guess_integer:

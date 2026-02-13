@@ -29,7 +29,7 @@ gen_tbl(
 - col_types:
 
   One of `NULL`, a
-  [`cols()`](https://vroom.tidyverse.org/dev/reference/cols.md)
+  [`cols()`](https://jimhester.github.io/vroom/dev/reference/cols.md)
   specification, or a string.
 
   If `NULL`, all column types will be inferred from `guess_max` rows of
@@ -39,10 +39,10 @@ gen_tbl(
 
   Column specifications created by
   [`list()`](https://rdrr.io/r/base/list.html) or
-  [`cols()`](https://vroom.tidyverse.org/dev/reference/cols.md) must
-  contain one column specification for each column. If you only want to
-  read a subset of the columns, use
-  [`cols_only()`](https://vroom.tidyverse.org/dev/reference/cols.md).
+  [`cols()`](https://jimhester.github.io/vroom/dev/reference/cols.md)
+  must contain one column specification for each column. If you only
+  want to read a subset of the columns, use
+  [`cols_only()`](https://jimhester.github.io/vroom/dev/reference/cols.md).
 
   Alternatively, you can use a compact string representation where each
   character represents one column:
@@ -77,8 +77,8 @@ gen_tbl(
 
   The locale controls defaults that vary from place to place. The
   default locale is US-centric (like R), but you can use
-  [`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md) to
-  create your own locale that controls things like the default time
+  [`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
+  to create your own locale that controls things like the default time
   zone, encoding, decimal mark, big mark, and day/month names.
 
 - missing:
@@ -92,8 +92,8 @@ each type.
 
 ## See also
 
-[generators](https://vroom.tidyverse.org/dev/reference/generators.md) to
-generate individual vectors.
+[generators](https://jimhester.github.io/vroom/dev/reference/generators.md)
+to generate individual vectors.
 
 ## Examples
 

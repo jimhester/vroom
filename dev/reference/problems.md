@@ -16,7 +16,7 @@ problems(x = .Last.value, lazy = FALSE)
 - x:
 
   A data frame from
-  [`vroom::vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md).
+  [`vroom::vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md).
 
 - lazy:
 

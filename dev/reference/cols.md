@@ -42,9 +42,9 @@ col_time(format = "", ...)
 
   Either column objects created by `col_*()`, or their abbreviated
   character names (as described in the `col_types` argument of
-  [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md)). If
-  you're only overriding a few columns, it's best to refer to columns by
-  name. If not named, the column types must match the column names
+  [`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md)).
+  If you're only overriding a few columns, it's best to refer to columns
+  by name. If not named, the column types must match the column names
   exactly. In `col_*()` functions these are stored in the object.
 
 - .default:
@@ -56,8 +56,8 @@ col_time(format = "", ...)
 
   The delimiter to use when parsing. If the `delim` argument used in the
   call to
-  [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md) it
-  takes precedence over the one specified in `col_types`.
+  [`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md)
+  it takes precedence over the one specified in `col_types`.
 
 - levels:
 
@@ -83,12 +83,12 @@ col_time(format = "", ...)
     "2024-01-15T14:30:00Z".
 
   - `col_date()` uses the `date_format` from
-    [`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md)
+    [`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
     (default `"%AD"`). These inputs should just work: "2024-01-15",
     "01/15/2024".
 
   - `col_time()` uses the `time_format` from
-    [`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md)
+    [`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
     (default `"%AT"`). These inputs should just work: "14:30:00",
     "2:30:00 PM".
 

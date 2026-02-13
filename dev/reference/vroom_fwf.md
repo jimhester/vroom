@@ -88,7 +88,7 @@ fwf_cols(...)
 - col_types:
 
   One of `NULL`, a
-  [`cols()`](https://vroom.tidyverse.org/dev/reference/cols.md)
+  [`cols()`](https://jimhester.github.io/vroom/dev/reference/cols.md)
   specification, or a string.
 
   If `NULL`, all column types will be inferred from `guess_max` rows of
@@ -98,10 +98,10 @@ fwf_cols(...)
 
   Column specifications created by
   [`list()`](https://rdrr.io/r/base/list.html) or
-  [`cols()`](https://vroom.tidyverse.org/dev/reference/cols.md) must
-  contain one column specification for each column. If you only want to
-  read a subset of the columns, use
-  [`cols_only()`](https://vroom.tidyverse.org/dev/reference/cols.md).
+  [`cols()`](https://jimhester.github.io/vroom/dev/reference/cols.md)
+  must contain one column specification for each column. If you only
+  want to read a subset of the columns, use
+  [`cols_only()`](https://jimhester.github.io/vroom/dev/reference/cols.md).
 
   Alternatively, you can use a compact string representation where each
   character represents one column:
@@ -155,8 +155,8 @@ fwf_cols(...)
 
   The locale controls defaults that vary from place to place. The
   default locale is US-centric (like R), but you can use
-  [`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md) to
-  create your own locale that controls things like the default time
+  [`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
+  to create your own locale that controls things like the default time
   zone, encoding, decimal mark, big mark, and day/month names.
 
 - na:
@@ -170,7 +170,7 @@ fwf_cols(...)
   A string used to identify comments. Any line that starts with the
   comment string at the beginning of the file (before any data lines)
   will be ignored. Unlike
-  [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md),
+  [`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md),
   comment lines in the middle of the file are not filtered out.
 
 - skip_empty_rows:
@@ -203,7 +203,7 @@ fwf_cols(...)
 
   Control which column types use Altrep representations, either a
   character vector of types, `TRUE` or `FALSE`. See
-  [`vroom_altrep()`](https://vroom.tidyverse.org/dev/reference/vroom_altrep.md)
+  [`vroom_altrep()`](https://jimhester.github.io/vroom/dev/reference/vroom_altrep.md)
   for for full details.
 
 - num_threads:

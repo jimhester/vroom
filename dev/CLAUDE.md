@@ -113,15 +113,15 @@ Four-phase pipeline (Polars-inspired):
 
 The R package bridges libvroom’s Arrow output to R data structures:
 
-| File                    | Purpose                                                                                                                                              |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `vroom_new.cpp`         | New libvroom-based [`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md) entry point: streaming API (`start_streaming()` / `next_chunk()`) |
-| `arrow_to_r.cpp/.h`     | Converts `ArrowColumnBuilder`s to R data frame; numeric cols copy to R vectors, string cols wrap in Altrep or materialize                            |
-| `altrep.cc/.h`          | R Altrep (lazy) vectors backed by Arrow string buffers — near-instant for deferred materialization                                                   |
-| `vroom_arrow.cpp`       | Arrow C Data Interface export (RecordBatch/Stream)                                                                                                   |
-| `cpp11.cpp`             | Generated cpp11 bindings registering C++ functions callable from R                                                                                   |
-| `delimited_index.cc/.h` | Legacy two-pass indexer (being replaced by libvroom)                                                                                                 |
-| `vroom_*.cc/.h`         | Legacy per-type column implementations (being replaced)                                                                                              |
+| File                    | Purpose                                                                                                                                                    |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `vroom_new.cpp`         | New libvroom-based [`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md) entry point: streaming API (`start_streaming()` / `next_chunk()`) |
+| `arrow_to_r.cpp/.h`     | Converts `ArrowColumnBuilder`s to R data frame; numeric cols copy to R vectors, string cols wrap in Altrep or materialize                                  |
+| `altrep.cc/.h`          | R Altrep (lazy) vectors backed by Arrow string buffers — near-instant for deferred materialization                                                         |
+| `vroom_arrow.cpp`       | Arrow C Data Interface export (RecordBatch/Stream)                                                                                                         |
+| `cpp11.cpp`             | Generated cpp11 bindings registering C++ functions callable from R                                                                                         |
+| `delimited_index.cc/.h` | Legacy two-pass indexer (being replaced by libvroom)                                                                                                       |
+| `vroom_*.cc/.h`         | Legacy per-type column implementations (being replaced)                                                                                                    |
 
 Integration flow:
 
@@ -148,51 +148,51 @@ Include paths: `-Imio/include`, `-Ispdlog/include`, `-Ilibvroom`,
 ## R Package API
 
 **Core Functions** - Reading:
-[`vroom()`](https://vroom.tidyverse.org/dev/reference/vroom.md) (main
-delimited reader with delimiter guessing),
-[`vroom_fwf()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
+[`vroom()`](https://jimhester.github.io/vroom/dev/reference/vroom.md)
+(main delimited reader with delimiter guessing),
+[`vroom_fwf()`](https://jimhester.github.io/vroom/dev/reference/vroom_fwf.md)
 (fixed-width files),
-[`vroom_lines()`](https://vroom.tidyverse.org/dev/reference/vroom_lines.md)
+[`vroom_lines()`](https://jimhester.github.io/vroom/dev/reference/vroom_lines.md)
 (lazy line reading) - Writing:
-[`vroom_write()`](https://vroom.tidyverse.org/dev/reference/vroom_write.md)
+[`vroom_write()`](https://jimhester.github.io/vroom/dev/reference/vroom_write.md)
 (async formatting, multi-threaded writing),
-[`vroom_write_lines()`](https://vroom.tidyverse.org/dev/reference/vroom_write_lines.md),
-[`vroom_format()`](https://vroom.tidyverse.org/dev/reference/vroom_format.md)
+[`vroom_write_lines()`](https://jimhester.github.io/vroom/dev/reference/vroom_write_lines.md),
+[`vroom_format()`](https://jimhester.github.io/vroom/dev/reference/vroom_format.md)
 (format without writing to disk) - Fixed-width positioning:
-[`fwf_empty()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
+[`fwf_empty()`](https://jimhester.github.io/vroom/dev/reference/vroom_fwf.md)
 (auto-detect),
-[`fwf_widths()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
+[`fwf_widths()`](https://jimhester.github.io/vroom/dev/reference/vroom_fwf.md)
 (specify widths),
-[`fwf_positions()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
+[`fwf_positions()`](https://jimhester.github.io/vroom/dev/reference/vroom_fwf.md)
 (start/end),
-[`fwf_cols()`](https://vroom.tidyverse.org/dev/reference/vroom_fwf.md)
+[`fwf_cols()`](https://jimhester.github.io/vroom/dev/reference/vroom_fwf.md)
 (named arguments) - Utilities:
-[`problems()`](https://vroom.tidyverse.org/dev/reference/problems.md)
+[`problems()`](https://jimhester.github.io/vroom/dev/reference/problems.md)
 (inspect parsing issues),
-[`spec()`](https://vroom.tidyverse.org/dev/reference/spec.md) (extract
-column spec),
-[`vroom_altrep()`](https://vroom.tidyverse.org/dev/reference/vroom_altrep.md)
+[`spec()`](https://jimhester.github.io/vroom/dev/reference/spec.md)
+(extract column spec),
+[`vroom_altrep()`](https://jimhester.github.io/vroom/dev/reference/vroom_altrep.md)
 (control Altrep usage),
-[`vroom_str()`](https://vroom.tidyverse.org/dev/reference/vroom_str.md)
+[`vroom_str()`](https://jimhester.github.io/vroom/dev/reference/vroom_str.md)
 (structure display for Altrep objects)
 
 **Column Type System** - Automatic type guessing from sample of rows
 (controlled by `guess_max`) - Explicit specification via
-[`cols()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`cols_only()`](https://vroom.tidyverse.org/dev/reference/cols.md), or
-compact string notation - Column parsers:
-[`col_character()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_integer()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_big_integer()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_double()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_number()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_date()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_datetime()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_time()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_factor()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_logical()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_skip()`](https://vroom.tidyverse.org/dev/reference/cols.md),
-[`col_guess()`](https://vroom.tidyverse.org/dev/reference/cols.md) -
+[`cols()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`cols_only()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+or compact string notation - Column parsers:
+[`col_character()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_integer()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_big_integer()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_double()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_number()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_date()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_datetime()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_time()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_factor()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_logical()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_skip()`](https://jimhester.github.io/vroom/dev/reference/cols.md),
+[`col_guess()`](https://jimhester.github.io/vroom/dev/reference/cols.md) -
 Compact string notation: `c`=character, `i`=integer, `I`=big integer,
 `d`=double, `n`=number, `l`=logical, `f`=factor, `D`=date, `T`=datetime,
 `t`=time, `?`=guess, `_` or `-`=skip - tidyselect-style column
@@ -202,17 +202,17 @@ selection:
 [`contains()`](https://tidyselect.r-lib.org/reference/starts_with.html),
 [`matches()`](https://tidyselect.r-lib.org/reference/starts_with.html),
 etc. - Problems tracking:
-[`problems()`](https://vroom.tidyverse.org/dev/reference/problems.md)
+[`problems()`](https://jimhester.github.io/vroom/dev/reference/problems.md)
 function to inspect parsing issues
 
 **Locale Support** -
-[`locale()`](https://vroom.tidyverse.org/dev/reference/locale.md) object
-controls region-specific settings: decimal mark, grouping mark,
+[`locale()`](https://jimhester.github.io/vroom/dev/reference/locale.md)
+object controls region-specific settings: decimal mark, grouping mark,
 date/time formats, encoding, timezone - Defaults to US-centric locale
 but fully customizable via
-[`date_names()`](https://vroom.tidyverse.org/dev/reference/date_names.md)
+[`date_names()`](https://jimhester.github.io/vroom/dev/reference/date_names.md)
 and
-[`date_names_langs()`](https://vroom.tidyverse.org/dev/reference/date_names.md)
+[`date_names_langs()`](https://jimhester.github.io/vroom/dev/reference/date_names.md)
 
 **Key R Dependencies** - cli: Error messages and formatting - tibble:
 Output format - tzdb: Timezone database for datetime parsing - vctrs:
