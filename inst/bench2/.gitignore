@@ -1,0 +1,4 @@
+lib/
+*/input.tsv
+*/*.tsv
+!../*.tsv
