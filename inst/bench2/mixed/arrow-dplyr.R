@@ -1,0 +1,12 @@
+({
+  library(arrow)
+  library(dplyr)
+})
+x <- read_delim_arrow(file, delim = "\t", as_data_frame = TRUE)
+invisible(NULL)
+print(x)
+a <- head(x)
+b <- tail(x)
+c <- slice_sample(x, n = 100)
+d <- filter(x, X10 > 3)
+e <- group_by(x, X10) %>% summarise(avg = mean(X18))

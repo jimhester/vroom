@@ -1,0 +1,6 @@
+package	ondiskversion	loadedversion	path	loadedpath	attached	is_base	date	source	md5ok	library
+arrow	23.0.0	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3/arrow	NA	FALSE	FALSE	2026-01-23	CRAN (R 4.3.3)	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3
+base	4.3.3	NA	/usr/lib/R/library/base	NA	TRUE	TRUE	2024-03-31	local	NA	/usr/lib/R/library
+data.table	1.18.0	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3/data.table	NA	FALSE	FALSE	2025-12-24	RSPM	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3
+dplyr	1.2.0	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3/dplyr	NA	FALSE	FALSE	2026-02-03	RSPM	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3
+vroom	1.6.7.9000	1.6.7.9000	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3/vroom	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3/vroom	FALSE	FALSE	2026-02-13	local	NA	/home/jimhester/R/x86_64-pc-linux-gnu-library/4.3

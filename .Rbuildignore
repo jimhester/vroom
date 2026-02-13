@@ -32,6 +32,8 @@
 ^\.clangd$
 ^compile_commands.json$
 ^inst/bench/.+/.*\.tsv$
+^inst/bench2/.+/.*\.tsv$
+^inst/bench2/lib$
 ^src/mio/cmake/
 ^src/mio/single_include/
 ^src/mio/test/

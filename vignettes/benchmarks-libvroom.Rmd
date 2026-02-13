@@ -1,0 +1,195 @@
+---
+title: "libvroom Benchmarks"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{libvroom Benchmarks}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r}
+#| include: false
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+
+library(ggplot2)
+library(forcats)
+library(dplyr)
+library(tidyr)
+library(fs)
+
+pretty_sec <- function(x) {
+  x[!is.na(x)] <- prettyunits::pretty_sec(x[!is.na(x)])
+  x
+}
+
+read_benchmark <- function(file, desc) {
+  vroom::vroom(file, col_types = c("ccccddddd")) |>
+    filter(op != "setup") |>
+    mutate(
+      reading_package_label = case_when(
+        reading_package == "vroom_cran" ~ "vroom (CRAN)",
+        reading_package == "vroom_arrow" ~ "vroom (Arrow)",
+        reading_package == "data.table" ~ "data.table",
+        TRUE ~ reading_package
+      ),
+      label = fct_reorder(
+        paste0(reading_package_label, "\n", manip_package),
+        case_when(type == "real" ~ time, TRUE ~ 0),
+        sum
+      ),
+      op = factor(op, desc)
+    )
+}
+
+generate_subtitle <- function(data) {
+  rows <- scales::comma(data$rows[[1]])
+  cols <- scales::comma(data$cols[[1]])
+  size <- fs_bytes(data$size[[1]])
+  glue::glue("{rows} x {cols} - {size}B")
+}
+
+plot_benchmark <- function(data, title) {
+
+  subtitle <- generate_subtitle(data)
+  data <- data |>
+    filter(type == "real")
+
+  p1 <- data |>
+    ggplot() +
+    geom_bar(aes(x = label, y = time, fill = op, group = label), stat = "identity") +
+    scale_fill_brewer(type = "qual", palette = "Set2") +
+    scale_y_continuous(labels = scales::number_format(suffix = "s")) +
+    coord_flip() +
+    labs(title = title, subtitle = subtitle, x = NULL, y = NULL, fill = NULL) +
+    theme(legend.position = "bottom")
+
+  p2 <- data |>
+    group_by(label) |>
+    summarise(max_memory = max(max_memory)) |>
+    ggplot() +
+    geom_bar(aes(x = label, y = max_memory / (1024 * 1024)), stat = "identity") +
+    scale_y_continuous(labels = scales::number_format(suffix = "Mb")) +
+    coord_flip() +
+    labs(title = "Maximum memory usage", x = NULL, y = NULL) +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+  library(patchwork)
+  p1 + p2 + plot_layout(widths = c(2, 1))
+}
+
+make_table <- function(data) {
+  data |>
+    filter(type == "real") |>
+    select(-label, -size, -type, -rows, -cols) |>
+    mutate(reading_package = reading_package_label) |>
+    select(-reading_package_label) |>
+    spread(op, time) |>
+    mutate(
+      total = read + materialize + print + head + tail + sample + filter + aggregate,
+      max_memory = as.character(bench::as_bench_bytes(max_memory))
+    ) |>
+    arrange(desc(total)) |>
+    mutate_if(is.numeric, pretty_sec) |>
+    select(reading_package, manip_package, max_memory, everything()) |>
+    rename(
+      "reading\npackage" = reading_package,
+      "manipulating\npackage" = manip_package,
+      memory = max_memory
+    ) |>
+    knitr::kable(digits = 2, align = "r", format = "html")
+}
+
+desc <- c("setup", "read", "materialize", "print", "head", "tail", "sample", "filter", "aggregate")
+```
+
+These benchmarks compare `vroom` with its new libvroom SIMD-accelerated backend
+against CRAN vroom, `arrow`, and `data.table` across several data reading and
+manipulation scenarios. Each benchmark reads a file, then performs a series of
+common operations: printing, taking head/tail, sampling, filtering, and
+aggregation.
+
+The libvroom backend uses portable SIMD instructions (via Google Highway) for
+CSV parsing and outputs data in Arrow columnar format for efficient R
+integration.
+
+# Reading delimited files
+
+The following benchmarks measure reading delimited files and performing common
+data manipulation tasks. A "materialize" step is included after reading to
+convert lazy representations into fully realized R vectors, providing a fair
+comparison across packages.
+
+## Mixed-type data
+
+This dataset contains a mix of character, integer, and double columns,
+representing a typical real-world CSV file.
+
+```{r}
+#| warning: false
+#| echo: false
+#| message: false
+#| fig-height: 8
+#| fig-width: 10
+#| fig-alt: "Horizontal bar chart comparing time and memory usage across different R packages (vroom, vroom CRAN, arrow, data.table) for reading and analyzing mixed-type data. The chart shows operation breakdowns including read, materialize, print, head, tail, sample, filter, and aggregate operations. Consult the associated table for detailed timing and memory usage statistics."
+mixed <- read_benchmark(path_package("vroom", "bench2", "mixed.tsv"), desc)
+
+plot_benchmark(mixed, "Time to analyze mixed-type data")
+
+make_table(mixed)
+```
+
+## All-numeric data
+
+All-numeric data is a challenging scenario for lazy readers because the index
+takes about as much memory as the parsed data. Numeric values also parse
+quickly in parallel, so there is less room for improvement from deferred
+evaluation. This benchmark highlights raw parsing throughput.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| fig-height: 8
+#| fig-width: 10
+#| fig-alt: "Horizontal bar chart comparing time and memory usage for reading and analyzing all-numeric data across different R packages (vroom, vroom CRAN, arrow, data.table). Shows performance breakdown by operation type."
+all_num <- read_benchmark(path_package("vroom", "bench2", "all_numeric.tsv"), desc)
+
+plot_benchmark(all_num, "Time to analyze all-numeric data")
+
+make_table(all_num)
+```
+
+## All-character data
+
+All-character data benefits most from lazy evaluation, as character parsing and
+memory allocation are the most expensive operations. Packages that defer
+materialization can skip parsing entirely for columns that are never accessed.
+
+```{r}
+#| warning: false
+#| message: false
+#| echo: false
+#| fig-height: 8
+#| fig-width: 10
+#| fig-alt: "Horizontal bar chart comparing time and memory usage for reading and analyzing all-character data across different R packages (vroom, vroom CRAN, arrow, data.table). Shows performance breakdown by operation type."
+all_chr <- read_benchmark(path_package("vroom", "bench2", "all_character.tsv"), desc)
+
+plot_benchmark(all_chr, "Time to analyze all-character data")
+
+make_table(all_chr)
+```
+
+## Session and package information
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+si <- vroom::vroom(path_package("vroom", "bench2", "session_info.tsv"))
+class(si) <- c("packages_info", "data.frame")
+select(as.data.frame(si), package, version = ondiskversion, date, source) |>
+  knitr::kable()
+```

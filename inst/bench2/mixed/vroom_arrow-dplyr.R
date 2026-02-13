@@ -1,0 +1,13 @@
+({
+  library(vroom)
+  library(arrow)
+  library(dplyr)
+})
+x <- vroom_arrow(file)
+invisible(NULL)
+print(x)
+a <- head(x)
+b <- tail(x)
+c <- slice_sample(x, n = 100)
+d <- filter(x, X10 > 3) |> collect()
+e <- group_by(x, X10) %>% summarise(avg = mean(X18)) |> collect()
