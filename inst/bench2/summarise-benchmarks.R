@@ -42,7 +42,17 @@ summarise_dir <- function(dir, desc) {
     vroom_write(out_file, delim = "\t")
 }
 
-desc <- c("setup", "read", "materialize", "print", "head", "tail", "sample", "filter", "aggregate")
+desc <- c(
+  "setup",
+  "read",
+  "materialize",
+  "print",
+  "head",
+  "tail",
+  "sample",
+  "filter",
+  "aggregate"
+)
 
 summarise_dir("mixed", desc)
 summarise_dir("all_numeric", desc)
