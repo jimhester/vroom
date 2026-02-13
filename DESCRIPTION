@@ -44,9 +44,11 @@ Imports:
     withr
 Suggests:
     archive,
+    arrow,
     bench (>= 1.1.0),
     covr,
     curl,
+    data.table,
     dplyr,
     forcats,
     fs,
@@ -58,6 +60,7 @@ Suggests:
     rmarkdown,
     rstudioapi,
     scales,
+    sessioninfo,
     spelling,
     testthat (>= 2.1.0),
     tidyr,
