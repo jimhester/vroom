@@ -648,7 +648,6 @@ Result<bool> CsvReader::open(const std::string& path) {
       impl_->schema[i].type = inferred_types[i];
     }
   }
-
   // Row count will be computed during read_all() to avoid separate SIMD pass
   // (eliminates ~5.6% overhead from AnalyzeChunkSimdImpl)
   impl_->row_count = 0;
