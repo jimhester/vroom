@@ -320,6 +320,10 @@ struct DualStateChunkStats {
   bool ends_inside_quote_from_outside = false;
 };
 
+// Simple row counting without quote awareness (for unquoted data).
+// Returns just the row count - much faster than dual-state analysis.
+size_t count_rows_newline_only_simd(const char* data, size_t size);
+
 // Single-pass dual-state chunk analysis (Polars algorithm)
 // Computes stats for BOTH starting states simultaneously using SIMD
 // This is the key optimization: one pass instead of two

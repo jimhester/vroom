@@ -421,6 +421,32 @@ HWY_NOINLINE DualStateResultInternal AnalyzeChunkDualStateSimdImpl(const char* d
   return result;
 }
 
+// Simple newline counting without quote awareness (for unquoted data).
+// Much faster than dual-state analysis since it skips quote parity entirely.
+HWY_NOINLINE size_t CountRowsNewlineOnlyImpl(const char* data, size_t size) {
+  size_t row_count = 0;
+  if (size == 0) return 0;
+
+  const hn::ScalableTag<uint8_t> d;
+  const size_t N = hn::Lanes(d);
+  const auto newline_vec = hn::Set(d, static_cast<uint8_t>('\n'));
+  size_t offset = 0;
+
+  while (offset + N <= size) {
+    const auto* ptr = reinterpret_cast<const uint8_t*>(data + offset);
+    auto block = hn::LoadU(d, ptr);
+    row_count += hn::CountTrue(d, hn::Eq(block, newline_vec));
+    offset += N;
+  }
+
+  // Scalar tail
+  for (; offset < size; ++offset) {
+    if (data[offset] == '\n') ++row_count;
+  }
+
+  return row_count;
+}
+
 // Find the end of the row starting from 'start' position using SIMD.
 // Returns offset of first byte after row terminator (newline or CRLF).
 // If no newline found, returns size.
@@ -645,6 +671,7 @@ namespace libvroom {
 
 // Export implementations for dynamic dispatch
 HWY_EXPORT(CountRowsSimdImpl);
+HWY_EXPORT(CountRowsNewlineOnlyImpl);
 HWY_EXPORT(AnalyzeChunkSimdImpl);
 HWY_EXPORT(AnalyzeChunkDualStateSimdImpl);
 HWY_EXPORT(FindRowEndSimdImpl);
@@ -654,6 +681,11 @@ HWY_EXPORT(FindRowEndSimdImpl);
 std::pair<size_t, size_t> count_rows_simd(const char* data, size_t size, char quote_char,
                                           bool escape_backslash) {
   return HWY_DYNAMIC_DISPATCH(CountRowsSimdImpl)(data, size, quote_char, escape_backslash);
+}
+
+// Simple newline-only row counting (for unquoted data)
+size_t count_rows_newline_only_simd(const char* data, size_t size) {
+  return HWY_DYNAMIC_DISPATCH(CountRowsNewlineOnlyImpl)(data, size);
 }
 
 // Analyze chunk with known starting quote state
