@@ -33,7 +33,9 @@ General advice:
 
 ## libvroom Architecture
 
-libvroom (`src/libvroom/`, vendored from `~/p/libvroom`) is a high-performance CSV parser using portable SIMD instructions (via Google Highway), based on a speculative multi-threaded two-pass algorithm from Chang et al. (SIGMOD 2019) and SIMD techniques from Langdale & Lemire (simdjson). It outputs parsed data in Arrow columnar format for zero-copy interop with R.
+libvroom (`src/libvroom/`, vendored from `~/p/libvroom`) can be modified directly in this repo for development. Changes should be noted for later upstreaming to `~/p/libvroom`.
+
+libvroom is a high-performance CSV parser using portable SIMD instructions (via Google Highway), based on a speculative multi-threaded two-pass algorithm from Chang et al. (SIGMOD 2019) and SIMD techniques from Langdale & Lemire (simdjson). It outputs parsed data in Arrow columnar format for zero-copy interop with R.
 
 ### Parsing Pipeline
 
