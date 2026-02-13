@@ -2,7 +2,7 @@
   library(arrow)
   library(dplyr)
 })
-x <- read_csv_arrow(file, as_data_frame = TRUE)
+x <- read_delim_arrow(file, delim = "\t", as_data_frame = TRUE)
 invisible(NULL)
 print(x)
 a <- head(x)

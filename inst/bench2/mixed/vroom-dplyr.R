@@ -9,7 +9,7 @@ x <- vroom(
   escape_double = FALSE,
   na = character()
 )
-vroom_materialize(x, replace = FALSE)
+vroom:::vroom_materialize(x, replace = FALSE)
 print(x)
 a <- head(x)
 b <- tail(x)

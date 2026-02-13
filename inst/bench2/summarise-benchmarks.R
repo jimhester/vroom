@@ -44,15 +44,6 @@ summarise_dir <- function(dir, desc) {
 
 desc <- c("setup", "read", "materialize", "print", "head", "tail", "sample", "filter", "aggregate")
 
-summarise_dir(
-  here::here("inst/bench2/mixed"),
-  desc
-)
-summarise_dir(
-  here::here("inst/bench2/all_numeric"),
-  desc
-)
-summarise_dir(
-  here::here("inst/bench2/all_character"),
-  desc
-)
+summarise_dir("mixed", desc)
+summarise_dir("all_numeric", desc)
+summarise_dir("all_character", desc)

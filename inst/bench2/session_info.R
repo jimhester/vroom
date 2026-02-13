@@ -6,6 +6,6 @@ vroom::vroom_write(
     dependencies = FALSE,
     include_base = TRUE
   ),
-  here::here("inst", "bench2", "session_info.tsv"),
+  "session_info.tsv",
   delim = "\t"
 )
