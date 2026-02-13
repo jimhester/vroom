@@ -9,6 +9,7 @@
 #include "vroom_dict_chr.h"
 
 #include <cstring>
+#include <limits>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -37,17 +38,22 @@ SEXP int64_column_to_r(const ArrowInt64ColumnBuilder& col, size_t nrows) {
   cpp11::writable::doubles result(nrows);
   const int64_t* src = col.values().data();
   double* dest = REAL(result);
+  constexpr int64_t BIT64_NA = std::numeric_limits<int64_t>::min();
 
-  if (!col.null_bitmap().has_nulls()) {
-    for (size_t i = 0; i < nrows; i++) {
-      dest[i] = static_cast<double>(src[i]);
-    }
-  } else {
+  // Copy int64 bits directly into double storage (bit64 format)
+  std::memcpy(dest, src, nrows * sizeof(int64_t));
+
+  // Patch null positions with bit64's NA sentinel (INT64_MIN)
+  if (col.null_bitmap().has_nulls()) {
     const NullBitmap& nulls = col.null_bitmap();
     for (size_t i = 0; i < nrows; i++) {
-      dest[i] = nulls.is_valid(i) ? static_cast<double>(src[i]) : NA_REAL;
+      if (!nulls.is_valid(i)) {
+        std::memcpy(&dest[i], &BIT64_NA, sizeof(int64_t));
+      }
     }
   }
+
+  Rf_setAttrib(result, R_ClassSymbol, Rf_mkString("integer64"));
   return result;
 }
 
@@ -378,9 +384,26 @@ cpp11::writable::list columns_to_r_chunked(
 
     } else if (type == DataType::INT64) {
       cpp11::writable::doubles r_vec(total_rows);
-      copy_numeric_chunks<ArrowInt64ColumnBuilder, int64_t, double>(
-          chunks, i, REAL(r_vec), NA_REAL,
-          [](int64_t v) { return static_cast<double>(v); });
+      double* dest = REAL(r_vec);
+      constexpr int64_t BIT64_NA = std::numeric_limits<int64_t>::min();
+      size_t dest_offset = 0;
+      for (auto& chunk_cols : chunks) {
+        auto& col =
+            static_cast<const ArrowInt64ColumnBuilder&>(*chunk_cols[i]);
+        const int64_t* src = col.values().data();
+        size_t n = col.size();
+        std::memcpy(dest + dest_offset, src, n * sizeof(int64_t));
+        if (col.null_bitmap().has_nulls()) {
+          const NullBitmap& nulls = col.null_bitmap();
+          for (size_t j = 0; j < n; j++) {
+            if (!nulls.is_valid(j)) {
+              std::memcpy(&dest[dest_offset + j], &BIT64_NA, sizeof(int64_t));
+            }
+          }
+        }
+        dest_offset += n;
+      }
+      Rf_setAttrib(r_vec, R_ClassSymbol, Rf_mkString("integer64"));
       result[static_cast<R_xlen_t>(i)] = r_vec;
 
     } else if (type == DataType::FLOAT64) {

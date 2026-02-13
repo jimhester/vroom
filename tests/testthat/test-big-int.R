@@ -74,11 +74,6 @@ test_that("integers are returned correctly", {
   )
 
   # But 2^63 should be NA
-  # libvroom currently clamps to max int64 instead of returning NA for overflow.
-  # Skip until libvroom adds overflow detection for big integers.
-  skip(
-    "libvroom does not yet detect big integer overflow (returns max int64 instead of NA)"
-  )
   test_vroom(
     "foo,bar,baz\n1,9223372036854775808,3\n",
     col_types = list(.default = "I"),
@@ -88,6 +83,39 @@ test_that("integers are returned correctly", {
       bar = as.integer64(NA),
       baz = as.integer64(3)
     )
+  )
+
+  # Negative overflow: -(2^63) - 1 should be NA
+  test_vroom(
+    "x\n-9223372036854775809\n",
+    col_types = list(x = "I"),
+    delim = ",",
+    equals = tibble::tibble(x = as.integer64(NA))
+  )
+
+  # Very large number should be NA
+  test_vroom(
+    "x\n99999999999999999999\n",
+    col_types = list(x = "I"),
+    delim = ",",
+    equals = tibble::tibble(x = as.integer64(NA))
+  )
+
+  # Boundary: bit64 minimum (-2^63 + 1) should still work
+  # (bit64 uses -2^63 as its NA sentinel)
+  test_vroom(
+    "x\n-9223372036854775807\n",
+    col_types = list(x = "I"),
+    delim = ",",
+    equals = tibble::tibble(x = as.integer64("-9223372036854775807"))
+  )
+
+  # INT64_MIN (-2^63) is bit64's NA sentinel, should be NA
+  test_vroom(
+    "x\n-9223372036854775808\n",
+    col_types = list(x = "I"),
+    delim = ",",
+    equals = tibble::tibble(x = as.integer64(NA))
   )
 })
 

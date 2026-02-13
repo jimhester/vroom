@@ -15,7 +15,12 @@ cpp11::sexp empty_tibble_from_schema(
     case libvroom::DataType::INT32:
       result[ri] = Rf_allocVector(INTSXP, 0);
       break;
-    case libvroom::DataType::INT64:
+    case libvroom::DataType::INT64: {
+      SEXP v = Rf_allocVector(REALSXP, 0);
+      Rf_setAttrib(v, R_ClassSymbol, Rf_mkString("integer64"));
+      result[ri] = v;
+      break;
+    }
     case libvroom::DataType::FLOAT64:
       result[ri] = Rf_allocVector(REALSXP, 0);
       break;
