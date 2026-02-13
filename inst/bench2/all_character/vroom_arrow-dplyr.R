@@ -1,0 +1,13 @@
+({
+  library(vroom)
+  library(arrow)
+  library(dplyr)
+})
+x <- vroom_arrow(file)
+x <- as.data.frame(x)
+print(x)
+a <- head(x)
+b <- tail(x)
+c <- slice_sample(x, n = 100)
+d <- filter(x, X1 == "helpless_sheep")
+e <- group_by(x, X1) %>% summarise(n = n())

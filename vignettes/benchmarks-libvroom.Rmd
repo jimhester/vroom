@@ -31,6 +31,7 @@ read_benchmark <- function(file, desc) {
     mutate(
       reading_package_label = case_when(
         reading_package == "vroom_cran" ~ "vroom (CRAN)",
+        reading_package == "vroom_arrow" ~ "vroom (Arrow)",
         reading_package == "data.table" ~ "data.table",
         TRUE ~ reading_package
       ),
