@@ -103,7 +103,7 @@ struct ThreadOptions {
   // - More row groups = more parallel column encoding opportunities
   // For numeric data, row group batching combines chunks into ~262K row groups
   // For string data, each chunk becomes a row group (merging is expensive)
-  static constexpr size_t MIN_CHUNK_SIZE = 1 * 1024 * 1024; // 1MB - optimal balance for parallelism
+  static constexpr size_t MIN_CHUNK_SIZE = 256 * 1024; // 256KB - better parallelism for numeric data
   static constexpr size_t MAX_CHUNK_SIZE = 4 * 1024 * 1024; // 4MB
 };
 
