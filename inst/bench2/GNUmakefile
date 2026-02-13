@@ -25,10 +25,10 @@ lib/vroom: setup.R
 	Rscript $< $(BENCH_ROWS) $(BENCH_COLS) $@
 
 # vroom_cran benchmarks depend on lib/vroom being installed
-vroom_cran-%.tsv: vroom_cran-%.R lib/vroom
+vroom_cran-%.tsv: vroom_cran-%.R lib/vroom $(BENCH_INPUTS)
 	./run-bench.R $< $@ $(@D)/input.tsv
 
-%.tsv: %.R
+%.tsv: %.R $(BENCH_INPUTS)
 	./run-bench.R $< $@ $(@D)/input.tsv
 
 clean:

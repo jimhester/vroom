@@ -82,7 +82,9 @@ plot_benchmark <- function(data, title) {
 make_table <- function(data) {
   data |>
     filter(type == "real") |>
-    select(-label, -reading_package_label, -size, -type, -rows, -cols) |>
+    select(-label, -size, -type, -rows, -cols) |>
+    mutate(reading_package = reading_package_label) |>
+    select(-reading_package_label) |>
     spread(op, time) |>
     mutate(
       total = read + materialize + print + head + tail + sample + filter + aggregate,
