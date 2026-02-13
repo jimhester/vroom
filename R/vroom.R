@@ -712,7 +712,7 @@ collector_to_libvroom_int <- function(collector) {
     collector_guess = 0L,
     collector_logical = 5L,
     collector_integer = 2L,
-    collector_big_integer = 5L,
+    collector_big_integer = 3L,
     collector_double = 4L,
     collector_character = 5L,
     collector_number = 5L,
@@ -812,6 +812,8 @@ build_libvroom_spec <- function(
   spec_cols <- lapply(out, function(col) {
     if (is.integer(col)) {
       col_integer()
+    } else if (inherits(col, "integer64")) {
+      col_big_integer()
     } else if (is.double(col)) {
       if (inherits(col, "Date")) {
         col_date()
@@ -987,9 +989,6 @@ apply_collector <- function(x, collector, locale = default_locale()) {
         decimal_mark = locale$decimal_mark
       )
     },
-    collector_big_integer = {
-      bit64::as.integer64(x)
-    },
     collector_factor = {
       lvls <- collector$levels
       include_na <- isTRUE(collector$include_na)
@@ -1046,7 +1045,6 @@ apply_collector <- function(x, collector, locale = default_locale()) {
     expected <- switch(
       cls,
       collector_logical = "a logical",
-      collector_big_integer = "a big integer",
       collector_number = "a number",
       collector_factor = "value in level set",
       collector_date = "date in ISO8601",

@@ -4,6 +4,8 @@
 #include <libvroom/format_parser.h>
 #include <libvroom/vroom.h>
 
+#include <limits>
+
 #include "arrow_to_r.h"
 #include "libvroom_helpers.h"
 #include "vroom_arrow_chr.h"
@@ -327,14 +329,14 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
           auto& col = static_cast<libvroom::ArrowInt64ColumnBuilder&>(*columns[i]);
           double* dest = REAL(numeric_vecs[i]) + row_offset;
           const int64_t* src = col.values().data();
-          if (!col.null_bitmap().has_nulls()) {
-            for (size_t r = 0; r < chunk_rows; r++) {
-              dest[r] = static_cast<double>(src[r]);
-            }
-          } else {
+          constexpr int64_t BIT64_NA = std::numeric_limits<int64_t>::min();
+          std::memcpy(dest, src, chunk_rows * sizeof(int64_t));
+          if (col.null_bitmap().has_nulls()) {
             const auto& nulls = col.null_bitmap();
             for (size_t r = 0; r < chunk_rows; r++) {
-              dest[r] = nulls.is_valid(r) ? static_cast<double>(src[r]) : NA_REAL;
+              if (!nulls.is_valid(r)) {
+                std::memcpy(&dest[r], &BIT64_NA, sizeof(int64_t));
+              }
             }
           }
 
@@ -438,6 +440,8 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         cpp11::writable::strings cls({"hms", "difftime"});
         Rf_setAttrib(numeric_vecs[i], R_ClassSymbol, cls);
         Rf_setAttrib(numeric_vecs[i], Rf_install("units"), Rf_mkString("secs"));
+      } else if (schema[i].type == libvroom::DataType::INT64) {
+        Rf_setAttrib(numeric_vecs[i], R_ClassSymbol, Rf_mkString("integer64"));
       }
     }
 
