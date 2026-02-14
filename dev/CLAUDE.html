@@ -74,7 +74,8 @@
 </div>
 <div class="section level2">
 <h2 id="libvroom-architecture">libvroom Architecture<a class="anchor" aria-label="anchor" href="#libvroom-architecture"></a></h2>
-<p>libvroom (<code>src/libvroom/</code>, vendored from <code>~/p/libvroom</code>) is a high-performance CSV parser using portable SIMD instructions (via Google Highway), based on a speculative multi-threaded two-pass algorithm from Chang et al. (SIGMOD 2019) and SIMD techniques from Langdale &amp; Lemire (simdjson). It outputs parsed data in Arrow columnar format for zero-copy interop with R.</p>
+<p>libvroom (<code>src/libvroom/</code>, vendored from <code>~/p/libvroom</code>) can be modified directly in this repo for development. Changes should be noted for later upstreaming to <code>~/p/libvroom</code>.</p>
+<p>libvroom is a high-performance CSV parser using portable SIMD instructions (via Google Highway), based on a speculative multi-threaded two-pass algorithm from Chang et al. (SIGMOD 2019) and SIMD techniques from Langdale &amp; Lemire (simdjson). It outputs parsed data in Arrow columnar format for zero-copy interop with R.</p>
 <div class="section level3">
 <h3 id="parsing-pipeline">Parsing Pipeline<a class="anchor" aria-label="anchor" href="#parsing-pipeline"></a></h3>
 <p>Four-phase pipeline (Polars-inspired):</p>
