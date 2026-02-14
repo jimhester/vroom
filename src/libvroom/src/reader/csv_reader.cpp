@@ -470,7 +470,7 @@ Result<bool> CsvReader::open(const std::string& path) {
       // User-specified encoding
       impl_->detected_encoding.encoding = *impl_->options.encoding;
       // Detect BOM even when encoding is forced
-      auto bom_result = detect_encoding(raw, raw_size);
+      auto bom_result = detect_bom(raw, raw_size);
       if (bom_result.encoding == *impl_->options.encoding ||
           (*impl_->options.encoding == CharEncoding::UTF8 &&
            bom_result.encoding == CharEncoding::UTF8_BOM)) {
@@ -648,7 +648,6 @@ Result<bool> CsvReader::open(const std::string& path) {
       impl_->schema[i].type = inferred_types[i];
     }
   }
-
   // Row count will be computed during read_all() to avoid separate SIMD pass
   // (eliminates ~5.6% overhead from AnalyzeChunkSimdImpl)
   impl_->row_count = 0;
@@ -675,7 +674,7 @@ Result<bool> CsvReader::open_from_buffer(AlignedBuffer buffer) {
 
     if (impl_->options.encoding.has_value()) {
       impl_->detected_encoding.encoding = *impl_->options.encoding;
-      auto bom_result = detect_encoding(raw, raw_size);
+      auto bom_result = detect_bom(raw, raw_size);
       if (bom_result.encoding == *impl_->options.encoding ||
           (*impl_->options.encoding == CharEncoding::UTF8 &&
            bom_result.encoding == CharEncoding::UTF8_BOM)) {
@@ -1665,7 +1664,7 @@ Result<bool> CsvReader::start_streaming() {
     return Result<bool>::success(true);
   }
 
-  // Phase 1: Analyze all chunks (SIMD, parallel)
+  // Phase 1+2: Analyze chunks for row counts and quote state
   size_t pool_threads = std::min(impl_->num_threads, num_chunks);
   impl_->streaming_pool = std::make_unique<BS::thread_pool>(pool_threads);
   auto& pool = *impl_->streaming_pool;
@@ -1673,7 +1672,29 @@ Result<bool> CsvReader::start_streaming() {
 
   auto& analysis_results = impl_->streaming_analysis;
   analysis_results.resize(num_chunks);
-  {
+
+  const bool quoting_disabled = (options.quote == '\0');
+
+  if (quoting_disabled) {
+    // Fast path: no quoting means every chunk starts outside quotes.
+    // Use simple newline counting instead of dual-state analysis.
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_chunks);
+    for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
+      size_t start_offset = chunk_ranges[chunk_idx].first;
+      size_t end_offset = chunk_ranges[chunk_idx].second;
+      futures.push_back(pool.submit_task([&analysis_results, data, size, chunk_idx, start_offset,
+                                          end_offset]() {
+        if (start_offset >= size || end_offset > size || start_offset >= end_offset)
+          return;
+        analysis_results[chunk_idx].row_count_outside =
+            count_rows_newline_only_simd(data + start_offset, end_offset - start_offset);
+      }));
+    }
+    for (auto& f : futures)
+      f.get();
+  } else {
+    // Original dual-state analysis path
     std::vector<std::future<void>> futures;
     futures.reserve(num_chunks);
     for (size_t chunk_idx = 0; chunk_idx < num_chunks; ++chunk_idx) {
@@ -1695,19 +1716,21 @@ Result<bool> CsvReader::start_streaming() {
       f.get();
   }
 
-  // Phase 2: Link chunks (serial)
+  // Phase 2: Link chunks (serial) — skip for unquoted data
   auto& use_inside_state = impl_->streaming_use_inside;
   use_inside_state.assign(num_chunks, false);
-  use_inside_state[0] = false;
-  for (size_t i = 1; i < num_chunks; ++i) {
-    bool prev_used_inside = use_inside_state[i - 1];
-    bool prev_ends_inside;
-    if (prev_used_inside) {
-      prev_ends_inside = !analysis_results[i - 1].ends_inside_starting_outside;
-    } else {
-      prev_ends_inside = analysis_results[i - 1].ends_inside_starting_outside;
+
+  if (!quoting_disabled) {
+    for (size_t i = 1; i < num_chunks; ++i) {
+      bool prev_used_inside = use_inside_state[i - 1];
+      bool prev_ends_inside;
+      if (prev_used_inside) {
+        prev_ends_inside = !analysis_results[i - 1].ends_inside_starting_outside;
+      } else {
+        prev_ends_inside = analysis_results[i - 1].ends_inside_starting_outside;
+      }
+      use_inside_state[i] = prev_ends_inside;
     }
-    use_inside_state[i] = prev_ends_inside;
   }
 
   // Compute total row count

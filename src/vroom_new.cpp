@@ -131,6 +131,8 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
 
   if (guess_max > 0)
     opts.sample_rows = static_cast<size_t>(guess_max);
+  else if (guess_max == 0)
+    opts.sample_rows = 0;
   else if (guess_max < 0)
     opts.sample_rows = SIZE_MAX;
 
@@ -484,7 +486,24 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
     return attach_problems(result);
   }
 
-  // Merge chunks and convert via existing path
+  // Fast path: direct chunked copy for non-factor, all-numeric data.
+  // columns_to_r_chunked wraps strings in ALTREP, so only safe when
+  // there are no string columns (or when ALTREP is acceptable).
+  if (!strings_as_factors) {
+    bool has_string_cols = false;
+    for (size_t i = 0; i < chunks[0].size(); i++) {
+      if (chunks[0][i]->type() == libvroom::DataType::STRING) {
+        has_string_cols = true;
+        break;
+      }
+    }
+    if (!has_string_cols) {
+      return attach_problems(
+          columns_to_r_chunked(chunks, schema, total_rows));
+    }
+  }
+
+  // Merge path: needed for factors (dict building) and non-ALTREP strings
   std::vector<std::unique_ptr<libvroom::ArrowColumnBuilder>>& merged = chunks[0];
   for (size_t c = 1; c < chunks.size(); c++) {
     for (size_t col = 0; col < merged.size(); col++) {

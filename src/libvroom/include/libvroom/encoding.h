@@ -61,6 +61,10 @@ CharEncoding parse_encoding_name(std::string_view name);
 /// allocation or heavy computation.
 EncodingResult detect_encoding(const uint8_t* data, size_t size);
 
+// Fast BOM-only detection (checks first 4 bytes only, no full-file validation).
+// Use when encoding is already known and we only need to check for a BOM.
+EncodingResult detect_bom(const uint8_t* data, size_t size);
+
 /// Transcode a buffer from the given encoding to UTF-8.
 /// Returns a new AlignedBuffer with the transcoded content.
 /// The BOM (if any) is stripped from the output.
