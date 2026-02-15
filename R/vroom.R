@@ -696,6 +696,32 @@ vroom <- function(
 }
 
 
+# Check if all inputs are plain local files suitable for native multi-file path
+all_local_plain_files <- function(files) {
+  if (length(files) <= 1) {
+    return(FALSE)
+  }
+  for (f in files) {
+    if (!is.character(f)) {
+      return(FALSE)
+    }
+    if (is_url(f)) {
+      return(FALSE)
+    }
+    if (is_compressed_path(f)) {
+      return(FALSE)
+    }
+    if (!is_ascii_path(f)) {
+      return(FALSE)
+    }
+    if (!file.exists(f)) {
+      return(FALSE)
+    }
+    if (file.size(f) == 0) return(FALSE)
+  }
+  TRUE
+}
+
 # Map an R col_spec to a vector of libvroom DataType integers.
 #
 # Mapping (matches libvroom::DataType enum):
