@@ -1113,6 +1113,158 @@ test_that("libvroom problems work across multiple files", {
 })
 
 # ========================================================================
+# Native multi-file Altrep preservation
+# ========================================================================
+
+is_altrep <- function(x) {
+  out <- utils::capture.output(.Internal(inspect(x)))
+  any(grepl("vroom_arrow_|vroom_rle", out))
+}
+
+test_that("native multi-file path preserves Altrep vectors", {
+  dir <- withr::local_tempdir()
+
+  writeLines("x,y,z\n1,1.5,foo\n2,2.5,bar", file.path(dir, "f1.csv"))
+  writeLines("x,y,z\n3,3.5,baz\n4,4.5,qux", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    id = "source",
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  # All data columns should be Altrep (unmaterialized)
+  expect_true(is_altrep(result$x))
+  expect_true(is_altrep(result$y))
+  expect_true(is_altrep(result$z))
+  # id column should be vroom_rle Altrep
+  expect_true(is_altrep(result$source))
+
+  # Data should be correct
+  expect_equal(result$x, c(1, 2, 3, 4))
+  expect_equal(result$y, c(1.5, 2.5, 3.5, 4.5))
+  expect_equal(result$z, c("foo", "bar", "baz", "qux"))
+})
+
+test_that("native multi-file produces correct logical columns", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b\nTRUE,1\nFALSE,2", file.path(dir, "f1.csv"))
+  writeLines("a,b\nTRUE,3\nFALSE,4", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  expect_equal(result$a, c(TRUE, FALSE, TRUE, FALSE))
+  expect_equal(result$b, c(1, 2, 3, 4))
+})
+
+test_that("native multi-file handles col_select", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,2,3\n4,5,6", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n7,8,9\n10,11,12", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_select = c(a, c),
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  expect_equal(names(result), c("a", "c"))
+  expect_equal(result$a, c(1, 4, 7, 10))
+  expect_equal(result$c, c(3, 6, 9, 12))
+})
+
+test_that("native multi-file handles n_max", {
+  dir <- withr::local_tempdir()
+
+  writeLines("x\n1\n2\n3", file.path(dir, "f1.csv"))
+  writeLines("x\n4\n5\n6", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    n_max = 4,
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  expect_equal(nrow(result), 4)
+  expect_equal(result$x, c(1, 2, 3, 4))
+})
+
+test_that("native multi-file matches vec_rbind path for correctness", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,hello,3.14\n2,world,2.72", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n3,foo,1.41\n4,bar,1.73", file.path(dir, "f2.csv"))
+  writeLines("a,b,c\n5,baz,0.58\n6,qux,0.31", file.path(dir, "f3.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv", "f3.csv"))
+
+  suppressWarnings({
+    legacy <- vroom(
+      files,
+      delim = ",",
+      id = "source",
+      use_libvroom = FALSE,
+      show_col_types = FALSE
+    )
+    native <- vroom(
+      files,
+      delim = ",",
+      id = "source",
+      use_libvroom = TRUE,
+      show_col_types = FALSE
+    )
+  })
+
+  expect_equal(native$a, legacy$a)
+  expect_equal(native$b, legacy$b)
+  expect_equal(native$c, legacy$c)
+  expect_equal(basename(native$source), basename(legacy$source))
+})
+
+test_that("native multi-file with explicit col_types", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b\n1,2.5\n3,4.5", file.path(dir, "f1.csv"))
+  writeLines("a,b\n5,6.5\n7,8.5", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_types = "id",
+    use_libvroom = TRUE,
+    show_col_types = FALSE
+  )
+
+  expect_type(result$a, "integer")
+  expect_type(result$b, "double")
+  expect_equal(result$a, c(1L, 3L, 5L, 7L))
+  expect_equal(result$b, c(2.5, 4.5, 6.5, 8.5))
+})
+
+# ========================================================================
 # Backslash escape support
 # ========================================================================
 

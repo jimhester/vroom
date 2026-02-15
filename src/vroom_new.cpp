@@ -77,6 +77,42 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   return df;
 }
 
+// Version that includes a file column for multi-file error tracking
+static cpp11::writable::list errors_to_r_problems_with_files(
+    const std::vector<libvroom::ParseError>& errors,
+    const std::vector<std::string>& file_paths) {
+  R_xlen_t n = static_cast<R_xlen_t>(errors.size());
+  cpp11::writable::integers rows(n);
+  cpp11::writable::integers cols(n);
+  cpp11::writable::strings expected(n);
+  cpp11::writable::strings actual(n);
+  cpp11::writable::strings files(n);
+
+  for (R_xlen_t i = 0; i < n; i++) {
+    const auto& err = errors[static_cast<size_t>(i)];
+    rows[i] = err.line > 0 ? static_cast<int>(err.line) : NA_INTEGER;
+    cols[i] = err.column > 0 ? static_cast<int>(err.column) : NA_INTEGER;
+    expected[i] = err.message;
+    actual[i] = err.context;
+    files[i] = static_cast<size_t>(i) < file_paths.size()
+                   ? file_paths[static_cast<size_t>(i)]
+                   : "";
+  }
+
+  cpp11::writable::list df(
+      {cpp11::named_arg("row") = rows, cpp11::named_arg("col") = cols,
+       cpp11::named_arg("expected") = expected,
+       cpp11::named_arg("actual") = actual,
+       cpp11::named_arg("file") = files});
+
+  df.attr("class") =
+      cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
+  df.attr("row.names") =
+      cpp11::writable::integers({NA_INTEGER, -static_cast<int>(n)});
+
+  return df;
+}
+
 [[cpp11::register]] cpp11::sexp vroom_libvroom_(
     SEXP input,
     const std::string& delim,
@@ -571,6 +607,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   file_infos.reserve(static_cast<size_t>(n_files));
 
   std::vector<libvroom::ColumnSchema> master_schema;
+  bool schema_established = false;
   size_t total_rows = 0;
 
   for (R_xlen_t fi = 0; fi < n_files; fi++) {
@@ -583,8 +620,8 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
                   open_result.error.c_str());
     }
 
-    if (fi == 0) {
-      // First file: apply schema overrides + default col types
+    if (!schema_established) {
+      // First file with data: apply schema overrides + default col types
       apply_schema_overrides(*reader, col_types, col_type_names);
 
       if (default_col_type > 0) {
@@ -610,10 +647,8 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
         }
         reader->set_schema(schema_copy);
       }
-
-      master_schema = reader->schema();
     } else {
-      // Subsequent files: enforce consistent schema from first file
+      // Subsequent files: enforce consistent schema from first file with data
       reader->set_schema(master_schema);
     }
 
@@ -626,7 +661,19 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
     size_t row_count = reader->row_count();
     total_rows += row_count;
 
+    // Establish master schema from first file with actual data rows
+    // (files with only headers have unreliable type inference)
+    if (!schema_established && row_count > 0) {
+      master_schema = reader->schema();
+      schema_established = true;
+    }
+
     file_infos.push_back({std::move(reader), std::move(path), row_count});
+  }
+
+  // If no file had data, use schema from first file (for column names)
+  if (!schema_established && !file_infos.empty()) {
+    master_schema = file_infos[0].reader->schema();
   }
 
   const auto& schema = master_schema;
@@ -647,8 +694,9 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
   std::vector<std::string> id_file_paths;
   std::vector<size_t> id_row_counts;
 
-  // Collect all errors
+  // Collect all errors with their source file paths
   std::vector<libvroom::ParseError> all_errors;
+  std::vector<std::string> all_error_files;
 
   for (auto& fi : file_infos) {
     // Track for id column even if file has 0 rows (skip accumulation below)
@@ -710,11 +758,13 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
       }
     }
 
-    // Collect errors from this file
+    // Collect errors from this file, tagging each with the file path
     const auto& file_errors = fi.reader->errors();
     if (!file_errors.empty()) {
       all_errors.insert(all_errors.end(), file_errors.begin(),
                         file_errors.end());
+      all_error_files.insert(all_error_files.end(), file_errors.size(),
+                             fi.path);
     }
   }
 
@@ -746,7 +796,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
 
     if (!all_errors.empty()) {
       Rf_setAttrib(result, Rf_install("problems"),
-                   errors_to_r_problems(all_errors));
+                   errors_to_r_problems_with_files(all_errors, all_error_files));
     }
     return result;
   }
@@ -873,7 +923,7 @@ errors_to_r_problems(const std::vector<libvroom::ParseError>& errors) {
 
   if (!all_errors.empty()) {
     Rf_setAttrib(result, Rf_install("problems"),
-                 errors_to_r_problems(all_errors));
+                 errors_to_r_problems_with_files(all_errors, all_error_files));
   }
   return result;
 }
