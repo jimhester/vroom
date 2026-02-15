@@ -68,6 +68,10 @@ parse_time_ <- function(x, format, locale) {
   .Call(`_vroom_parse_time_`, x, format, locale)
 }
 
+vroom_libvroom_multi_ <- function(files, delim, quote, has_header, skip, comment, skip_empty_rows, trim_ws, na_values, num_threads, use_altrep, col_types, col_type_names, default_col_type, escape_backslash, id_col_name) {
+  .Call(`_vroom_vroom_libvroom_multi_`, files, delim, quote, has_header, skip, comment, skip_empty_rows, trim_ws, na_values, num_threads, use_altrep, col_types, col_type_names, default_col_type, escape_backslash, id_col_name)
+}
+
 vroom_write_ <- function(input, filename, delim, eol, na_str, col_names, append, options, num_threads, progress, buf_lines) {
   invisible(.Call(`_vroom_vroom_write_`, input, filename, delim, eol, na_str, col_names, append, options, num_threads, progress, buf_lines))
 }

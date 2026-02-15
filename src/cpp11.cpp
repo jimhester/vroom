@@ -124,6 +124,13 @@ extern "C" SEXP _vroom_parse_time_(SEXP x, SEXP format, SEXP locale) {
     return cpp11::as_sexp(parse_time_(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(x), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(format), cpp11::as_cpp<cpp11::decay_t<const cpp11::list&>>(locale)));
   END_CPP11
 }
+// vroom_new.cpp
+cpp11::sexp vroom_libvroom_multi_(const cpp11::strings& files, const std::string& delim, char quote, bool has_header, int skip, const std::string& comment, bool skip_empty_rows, bool trim_ws, const std::string& na_values, int num_threads, bool use_altrep, const std::vector<int>& col_types, const cpp11::strings& col_type_names, int default_col_type, bool escape_backslash, const std::string& id_col_name);
+extern "C" SEXP _vroom_vroom_libvroom_multi_(SEXP files, SEXP delim, SEXP quote, SEXP has_header, SEXP skip, SEXP comment, SEXP skip_empty_rows, SEXP trim_ws, SEXP na_values, SEXP num_threads, SEXP use_altrep, SEXP col_types, SEXP col_type_names, SEXP default_col_type, SEXP escape_backslash, SEXP id_col_name) {
+  BEGIN_CPP11
+    return cpp11::as_sexp(vroom_libvroom_multi_(cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(files), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(delim), cpp11::as_cpp<cpp11::decay_t<char>>(quote), cpp11::as_cpp<cpp11::decay_t<bool>>(has_header), cpp11::as_cpp<cpp11::decay_t<int>>(skip), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(comment), cpp11::as_cpp<cpp11::decay_t<bool>>(skip_empty_rows), cpp11::as_cpp<cpp11::decay_t<bool>>(trim_ws), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(na_values), cpp11::as_cpp<cpp11::decay_t<int>>(num_threads), cpp11::as_cpp<cpp11::decay_t<bool>>(use_altrep), cpp11::as_cpp<cpp11::decay_t<const std::vector<int>&>>(col_types), cpp11::as_cpp<cpp11::decay_t<const cpp11::strings&>>(col_type_names), cpp11::as_cpp<cpp11::decay_t<int>>(default_col_type), cpp11::as_cpp<cpp11::decay_t<bool>>(escape_backslash), cpp11::as_cpp<cpp11::decay_t<const std::string&>>(id_col_name)));
+  END_CPP11
+}
 // vroom_write.cc
 void vroom_write_(const cpp11::list& input, const std::string& filename, const char delim, const std::string& eol, const char* na_str, bool col_names, bool append, size_t options, size_t num_threads, bool progress, size_t buf_lines);
 extern "C" SEXP _vroom_vroom_write_(SEXP input, SEXP filename, SEXP delim, SEXP eol, SEXP na_str, SEXP col_names, SEXP append, SEXP options, SEXP num_threads, SEXP progress, SEXP buf_lines) {
@@ -163,6 +170,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_vroom_vroom_format_",           (DL_FUNC) &_vroom_vroom_format_,           10},
     {"_vroom_vroom_libvroom_",         (DL_FUNC) &_vroom_vroom_libvroom_,         26},
     {"_vroom_vroom_libvroom_fwf_",     (DL_FUNC) &_vroom_vroom_libvroom_fwf_,     13},
+    {"_vroom_vroom_libvroom_multi_",   (DL_FUNC) &_vroom_vroom_libvroom_multi_,   16},
     {"_vroom_vroom_lines_libvroom_",   (DL_FUNC) &_vroom_vroom_lines_libvroom_,    7},
     {"_vroom_vroom_materialize",       (DL_FUNC) &_vroom_vroom_materialize,        2},
     {"_vroom_vroom_rle_make",          (DL_FUNC) &_vroom_vroom_rle_make,           1},
