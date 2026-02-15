@@ -177,6 +177,7 @@ static const R_CallMethodDef CallEntries[] = {
 void init_vroom_arrow_chr(DllInfo* dll);
 void init_vroom_arrow_dbl(DllInfo* dll);
 void init_vroom_arrow_int(DllInfo* dll);
+void init_vroom_arrow_lgl(DllInfo* dll);
 void init_vroom_dict_chr(DllInfo* dll);
 void init_vroom_rle(DllInfo* dll);
 
@@ -186,6 +187,7 @@ extern "C" attribute_visible void R_init_vroom(DllInfo* dll){
   init_vroom_arrow_chr(dll);
   init_vroom_arrow_dbl(dll);
   init_vroom_arrow_int(dll);
+  init_vroom_arrow_lgl(dll);
   init_vroom_dict_chr(dll);
   init_vroom_rle(dll);
   R_forceSymbols(dll, TRUE);
