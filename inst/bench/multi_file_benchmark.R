@@ -106,56 +106,41 @@ benchmark_comparison <- function(
   filepaths <- generate_test_files(n_files, n_rows, type)
   total_size_mb <- sum(file.size(filepaths)) / 1e6
 
-  exprs <- list(
-    native = rlang::expr(vroom::vroom(
+  # Time each approach individually with bench::system_time for reliability
+  time_approach <- function(fn, iterations) {
+    times <- numeric(iterations)
+    for (iter in seq_len(iterations)) {
+      t <- bench::system_time(fn())
+      times[iter] <- as.numeric(t[["process"]])
+    }
+    stats::median(times)
+  }
+
+  native_fn <- function() {
+    vroom::vroom(filepaths, delim = ",", id = "source", show_col_types = FALSE)
+  }
+  rbind_fn <- function() read_per_file_vec_rbind(filepaths)
+
+  native_access_fn <- function() {
+    res <- vroom::vroom(
       filepaths,
       delim = ",",
       id = "source",
       show_col_types = FALSE
-    )),
-    per_file_rbind = rlang::expr(read_per_file_vec_rbind(filepaths))
-  )
-
-  access_exprs <- list(
-    native_access = rlang::expr({
-      res <- vroom::vroom(
-        filepaths,
-        delim = ",",
-        id = "source",
-        show_col_types = FALSE
-      )
-      for (col in res) length(col)
-      res
-    }),
-    per_file_rbind_access = rlang::expr({
-      res <- read_per_file_vec_rbind(filepaths)
-      for (col in res) length(col)
-      res
-    })
-  )
-
-  if (!is.null(cran_lib)) {
-    exprs$cran_vroom <- rlang::expr(read_cran_vroom(filepaths, cran_lib))
-    access_exprs$cran_vroom_access <- rlang::expr({
-      res <- read_cran_vroom(filepaths, cran_lib)
-      for (col in res) length(col)
-      res
-    })
+    )
+    for (col in res) length(col)
+    res
+  }
+  rbind_access_fn <- function() {
+    res <- read_per_file_vec_rbind(filepaths)
+    for (col in res) length(col)
+    res
   }
 
-  read_result <- bench::mark(
-    !!!exprs,
-    iterations = iterations,
-    check = FALSE,
-    filter_gc = FALSE
-  )
-
-  access_result <- bench::mark(
-    !!!access_exprs,
-    iterations = iterations,
-    check = FALSE,
-    filter_gc = FALSE
-  )
+  native_read <- time_approach(native_fn, iterations)
+  rbind_read <- time_approach(rbind_fn, iterations)
+  native_access <- time_approach(native_access_fn, iterations)
+  rbind_access <- time_approach(rbind_access_fn, iterations)
 
   row <- data.frame(
     n_files = n_files,
@@ -163,16 +148,22 @@ benchmark_comparison <- function(
     type = type,
     total_rows = n_files * n_rows,
     size_mb = round(total_size_mb, 1),
-    native_read_ms = round(as.numeric(read_result$median[1]) * 1000, 1),
-    rbind_read_ms = round(as.numeric(read_result$median[2]) * 1000, 1),
-    native_access_ms = round(as.numeric(access_result$median[1]) * 1000, 1),
-    rbind_access_ms = round(as.numeric(access_result$median[2]) * 1000, 1),
+    native_read_ms = round(native_read * 1000, 1),
+    rbind_read_ms = round(rbind_read * 1000, 1),
+    native_access_ms = round(native_access * 1000, 1),
+    rbind_access_ms = round(rbind_access * 1000, 1),
     stringsAsFactors = FALSE
   )
 
   if (!is.null(cran_lib)) {
-    row$cran_read_ms <- round(as.numeric(read_result$median[3]) * 1000, 1)
-    row$cran_access_ms <- round(as.numeric(access_result$median[3]) * 1000, 1)
+    cran_fn <- function() read_cran_vroom(filepaths, cran_lib)
+    cran_access_fn <- function() {
+      res <- read_cran_vroom(filepaths, cran_lib)
+      for (col in res) length(col)
+      res
+    }
+    row$cran_read_ms <- round(time_approach(cran_fn, iterations) * 1000, 1)
+    row$cran_access_ms <- round(time_approach(cran_access_fn, iterations) * 1000, 1)
   }
 
   unlink(filepaths)
