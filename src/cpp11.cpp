@@ -175,6 +175,7 @@ static const R_CallMethodDef CallEntries[] = {
 }
 
 void init_vroom_arrow_chr(DllInfo* dll);
+void init_vroom_arrow_int(DllInfo* dll);
 void init_vroom_dict_chr(DllInfo* dll);
 void init_vroom_rle(DllInfo* dll);
 
@@ -182,6 +183,7 @@ extern "C" attribute_visible void R_init_vroom(DllInfo* dll){
   R_registerRoutines(dll, NULL, CallEntries, NULL, NULL);
   R_useDynamicSymbols(dll, FALSE);
   init_vroom_arrow_chr(dll);
+  init_vroom_arrow_int(dll);
   init_vroom_dict_chr(dll);
   init_vroom_rle(dll);
   R_forceSymbols(dll, TRUE);
