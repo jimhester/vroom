@@ -509,7 +509,17 @@ vroom <- function(
   }
 
   # Fast path: native multi-file read (no vec_rbind, all Altrep)
-  if (all_local_plain_files(file)) {
+  # Skip when features not supported by the multi-file C++ path are in use:
+  #   - non-default decimal mark (affects numeric parsing)
+  #   - custom col_formats (date/time format strings)
+  #   - altrep explicitly disabled
+  multi_file_eligible <-
+    all_local_plain_files(file) &&
+    identical(locale$decimal_mark, ".") &&
+    (length(col_formats) == 0 || all(col_formats == "")) &&
+    !isFALSE(altrep)
+
+  if (multi_file_eligible) {
     multi_result <- tryCatch(
       vroom_libvroom_multi_(
         files = unlist(file),

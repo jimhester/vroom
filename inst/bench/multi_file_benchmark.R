@@ -21,7 +21,12 @@ setup_cran_vroom <- function() {
   if (!file.exists(file.path(lib, "vroom"))) {
     cat("Installing CRAN vroom to", lib, "...\n")
     dir.create(lib, recursive = TRUE, showWarnings = FALSE)
-    install.packages("vroom", lib = lib, repos = "https://cloud.r-project.org", quiet = TRUE)
+    install.packages(
+      "vroom",
+      lib = lib,
+      repos = "https://cloud.r-project.org",
+      quiet = TRUE
+    )
   }
   lib
 }
@@ -46,8 +51,16 @@ generate_test_files <- function(n_files, n_rows, type, seed = 42) {
       )
     } else if (type == "character") {
       words <- c(
-        "apple", "banana", "cherry", "date", "elderberry",
-        "fig", "grape", "honeydew", "kiwi", "lemon"
+        "apple",
+        "banana",
+        "cherry",
+        "date",
+        "elderberry",
+        "fig",
+        "grape",
+        "honeydew",
+        "kiwi",
+        "lemon"
       )
       df <- data.frame(
         id = 1:n_rows,
@@ -102,7 +115,12 @@ read_cran_vroom <- function(filepaths, cran_lib) {
 }
 
 benchmark_comparison <- function(
-    n_files, n_rows, type, cran_lib = NULL, iterations = 5) {
+  n_files,
+  n_rows,
+  type,
+  cran_lib = NULL,
+  iterations = 5
+) {
   filepaths <- generate_test_files(n_files, n_rows, type)
   total_size_mb <- sum(file.size(filepaths)) / 1e6
 
@@ -128,12 +146,16 @@ benchmark_comparison <- function(
       id = "source",
       show_col_types = FALSE
     )
-    for (col in res) length(col)
+    for (col in res) {
+      length(col)
+    }
     res
   }
   rbind_access_fn <- function() {
     res <- read_per_file_vec_rbind(filepaths)
-    for (col in res) length(col)
+    for (col in res) {
+      length(col)
+    }
     res
   }
 
@@ -159,11 +181,16 @@ benchmark_comparison <- function(
     cran_fn <- function() read_cran_vroom(filepaths, cran_lib)
     cran_access_fn <- function() {
       res <- read_cran_vroom(filepaths, cran_lib)
-      for (col in res) length(col)
+      for (col in res) {
+        length(col)
+      }
       res
     }
     row$cran_read_ms <- round(time_approach(cran_fn, iterations) * 1000, 1)
-    row$cran_access_ms <- round(time_approach(cran_access_fn, iterations) * 1000, 1)
+    row$cran_access_ms <- round(
+      time_approach(cran_access_fn, iterations) * 1000,
+      1
+    )
   }
 
   unlink(filepaths)
@@ -186,7 +213,9 @@ check_altrep <- function() {
     inspect_out <- utils::capture.output(.Internal(inspect(native[[nm]])))
     is_altrep <- any(grepl("vroom_arrow_|vroom_rle", inspect_out))
     cat(sprintf(
-      "  %-10s (%s): %s\n", nm, typeof(native[[nm]]),
+      "  %-10s (%s): %s\n",
+      nm,
+      typeof(native[[nm]]),
       if (is_altrep) "ALTREP" else "materialized"
     ))
   }
@@ -196,9 +225,14 @@ check_altrep <- function() {
   cat(sprintf("  %d rows x %d cols\n", nrow(rbind_result), ncol(rbind_result)))
   for (nm in names(rbind_result)) {
     inspect_out <- utils::capture.output(.Internal(inspect(rbind_result[[nm]])))
-    is_altrep <- any(grepl("vroom_arrow_|vroom_rle|vroom_chr|vroom_", inspect_out))
+    is_altrep <- any(grepl(
+      "vroom_arrow_|vroom_rle|vroom_chr|vroom_",
+      inspect_out
+    ))
     cat(sprintf(
-      "  %-10s (%s): %s\n", nm, typeof(rbind_result[[nm]]),
+      "  %-10s (%s): %s\n",
+      nm,
+      typeof(rbind_result[[nm]]),
       if (is_altrep) "ALTREP" else "materialized"
     ))
   }

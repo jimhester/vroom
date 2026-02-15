@@ -1258,6 +1258,75 @@ test_that("native multi-file with explicit col_types", {
   expect_equal(result$b, c(2.5, 4.5, 6.5, 8.5))
 })
 
+test_that("native multi-file handles NA values correctly", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,hello,TRUE\nNA,NA,NA", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n2,world,FALSE\n3,NA,NA", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    show_col_types = FALSE
+  )
+
+  expect_equal(result$a, c(1, NA, 2, 3))
+  expect_equal(result$b, c("hello", NA, "world", NA))
+  expect_equal(result$c, c(TRUE, NA, FALSE, NA))
+})
+
+test_that("native multi-file handles date and datetime columns", {
+  dir <- withr::local_tempdir()
+
+  writeLines(
+    "dt,ts\n2024-01-15,2024-01-15T10:30:00\n2024-02-20,2024-02-20T14:00:00",
+    file.path(dir, "f1.csv")
+  )
+  writeLines(
+    "dt,ts\n2024-03-10,2024-03-10T08:15:00\n2024-04-05,2024-04-05T16:45:00",
+    file.path(dir, "f2.csv")
+  )
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_types = "DT",
+    show_col_types = FALSE
+  )
+
+  expect_s3_class(result$dt, "Date")
+  expect_s3_class(result$ts, "POSIXct")
+  expect_equal(
+    result$dt,
+    as.Date(c("2024-01-15", "2024-02-20", "2024-03-10", "2024-04-05"))
+  )
+  expect_equal(nrow(result), 4)
+})
+
+test_that("native multi-file falls back when decimal_mark is non-default", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a;b\n1,5;2,5\n3,5;4,5", file.path(dir, "f1.csv"))
+  writeLines("a;b\n5,5;6,5\n7,5;8,5", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  # Non-default decimal_mark should still work (falls back to per-file path)
+  result <- vroom(
+    files,
+    delim = ";",
+    locale = locale(decimal_mark = ","),
+    show_col_types = FALSE
+  )
+
+  expect_equal(nrow(result), 4)
+  expect_equal(result$a, c(1.5, 3.5, 5.5, 7.5))
+})
+
 # ========================================================================
 # Backslash escape support
 # ========================================================================

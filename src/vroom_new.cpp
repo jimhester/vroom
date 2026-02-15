@@ -572,11 +572,12 @@ static cpp11::writable::list errors_to_r_problems_with_files(
     bool escape_backslash,
     const std::string& id_col_name) {
 
-  // Build shared CSV options
+  // Build shared CSV options (mirror single-file setup in vroom_libvroom_)
   libvroom::CsvOptions opts;
   opts.escape_backslash = escape_backslash;
+  opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
   if (!delim.empty())
-    opts.separator = delim[0];
+    opts.separator = delim;
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
@@ -584,9 +585,8 @@ static cpp11::writable::list errors_to_r_problems_with_files(
   if (skip > 0)
     opts.skip = static_cast<size_t>(skip);
   if (!comment.empty())
-    opts.comment = comment[0];
-  if (!na_values.empty())
-    opts.null_values = na_values;
+    opts.comment = comment;
+  opts.null_values = na_values;
   if (num_threads > 0)
     opts.num_threads = static_cast<size_t>(num_threads);
   opts.encoding = libvroom::CharEncoding::UTF8;
