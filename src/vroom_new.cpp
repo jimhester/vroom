@@ -92,7 +92,7 @@ static cpp11::writable::list errors_to_r_problems_with_files(
     const auto& err = errors[static_cast<size_t>(i)];
     rows[i] = err.line > 0 ? static_cast<int>(err.line) : NA_INTEGER;
     cols[i] = err.column > 0 ? static_cast<int>(err.column) : NA_INTEGER;
-    expected[i] = err.message;
+    expected[i] = translate_expected(err.message);
     actual[i] = err.context;
     files[i] = static_cast<size_t>(i) < file_paths.size()
                    ? file_paths[static_cast<size_t>(i)]

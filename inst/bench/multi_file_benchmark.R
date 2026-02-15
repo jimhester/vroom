@@ -1,16 +1,30 @@
 #!/usr/bin/env Rscript
 
-# Benchmark: native multi-file path vs per-file libvroom + vec_rbind
-# Both paths use the libvroom SIMD parser. The difference is:
-# - native: reads all files in one C++ call, returns multi-chunk Altrep
-# - per_file: reads each file separately, combines with vctrs::vec_rbind()
-# Usage: Rscript multi_file_benchmark.R
+# Benchmark: multi-file read performance comparison
+#
+# Compares three approaches:
+# 1. native: new multi-file fast path (one C++ call, multi-chunk Altrep)
+# 2. per_file_rbind: per-file libvroom + vctrs::vec_rbind() (current dev fallback)
+# 3. cran_vroom: CRAN vroom (1.6.5) multi-file read
+#
+# Usage: Rscript multi_file_benchmark.R [--skip-cran]
 
 library(bench)
 library(vroom)
 
 BENCH_DIR <- file.path(tempdir(), "vroom_multi_file_bench")
 dir.create(BENCH_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# Install CRAN vroom into a local lib/ directory for comparison
+setup_cran_vroom <- function() {
+  lib <- file.path(BENCH_DIR, "lib")
+  if (!file.exists(file.path(lib, "vroom"))) {
+    cat("Installing CRAN vroom to", lib, "...\n")
+    dir.create(lib, recursive = TRUE, showWarnings = FALSE)
+    install.packages("vroom", lib = lib, repos = "https://cloud.r-project.org", quiet = TRUE)
+  }
+  lib
+}
 
 generate_test_files <- function(n_files, n_rows, type, seed = 42) {
   set.seed(seed)
@@ -60,16 +74,10 @@ generate_test_files <- function(n_files, n_rows, type, seed = 42) {
   filepaths
 }
 
-# Simulate the per-file + vec_rbind path (what vroom does without
-# the native multi-file fast path). Each file is read individually
-# through libvroom, then combined with vctrs::vec_rbind().
+# Per-file + vec_rbind path (current dev fallback when native path unavailable)
 read_per_file_vec_rbind <- function(filepaths, id = "source") {
   results <- lapply(filepaths, function(f) {
-    one <- vroom::vroom(
-      f,
-      delim = ",",
-      show_col_types = FALSE
-    )
+    one <- vroom::vroom(f, delim = ",", show_col_types = FALSE)
     if (!is.null(id)) {
       one[[id]] <- f
       one <- one[c(id, setdiff(names(one), id))]
@@ -79,49 +87,77 @@ read_per_file_vec_rbind <- function(filepaths, id = "source") {
   vctrs::vec_rbind(!!!results)
 }
 
-benchmark_comparison <- function(n_files, n_rows, type, iterations = 5) {
+# CRAN vroom multi-file read (uses separate lib)
+read_cran_vroom <- function(filepaths, cran_lib) {
+  # Load CRAN vroom in a subprocess to avoid namespace conflicts
+  callr::r(
+    function(files, lib) {
+      .libPaths(c(lib, .libPaths()))
+      library(vroom, lib.loc = lib)
+      vroom::vroom(files, delim = ",", id = "source", show_col_types = FALSE)
+    },
+    args = list(files = filepaths, lib = cran_lib),
+    show = FALSE
+  )
+}
+
+benchmark_comparison <- function(
+    n_files, n_rows, type, cran_lib = NULL, iterations = 5) {
   filepaths <- generate_test_files(n_files, n_rows, type)
   total_size_mb <- sum(file.size(filepaths)) / 1e6
 
-  # Phase 1: Just reading (deferred for native, eager for per-file+rbind)
-  read_result <- bench::mark(
-    native = vroom::vroom(
+  exprs <- list(
+    native = rlang::expr(vroom::vroom(
       filepaths,
       delim = ",",
       id = "source",
       show_col_types = FALSE
-    ),
-    per_file_rbind = read_per_file_vec_rbind(filepaths),
-    iterations = iterations,
-    check = FALSE,
-    filter_gc = FALSE
+    )),
+    per_file_rbind = rlang::expr(read_per_file_vec_rbind(filepaths))
   )
 
-  # Phase 2: Read + access all data (forces full materialization)
-  read_result_access <- bench::mark(
-    native_access = {
+  access_exprs <- list(
+    native_access = rlang::expr({
       res <- vroom::vroom(
         filepaths,
         delim = ",",
         id = "source",
         show_col_types = FALSE
       )
-      for (col in res) length(col) # trigger materialization
+      for (col in res) length(col)
       res
-    },
-    per_file_rbind_access = {
+    }),
+    per_file_rbind_access = rlang::expr({
       res <- read_per_file_vec_rbind(filepaths)
       for (col in res) length(col)
       res
-    },
+    })
+  )
+
+  if (!is.null(cran_lib)) {
+    exprs$cran_vroom <- rlang::expr(read_cran_vroom(filepaths, cran_lib))
+    access_exprs$cran_vroom_access <- rlang::expr({
+      res <- read_cran_vroom(filepaths, cran_lib)
+      for (col in res) length(col)
+      res
+    })
+  }
+
+  read_result <- bench::mark(
+    !!!exprs,
     iterations = iterations,
     check = FALSE,
     filter_gc = FALSE
   )
 
-  unlink(filepaths)
+  access_result <- bench::mark(
+    !!!access_exprs,
+    iterations = iterations,
+    check = FALSE,
+    filter_gc = FALSE
+  )
 
-  data.frame(
+  row <- data.frame(
     n_files = n_files,
     n_rows = n_rows,
     type = type,
@@ -129,17 +165,18 @@ benchmark_comparison <- function(n_files, n_rows, type, iterations = 5) {
     size_mb = round(total_size_mb, 1),
     native_read_ms = round(as.numeric(read_result$median[1]) * 1000, 1),
     rbind_read_ms = round(as.numeric(read_result$median[2]) * 1000, 1),
-    read_ratio = round(
-      as.numeric(read_result$median[1]) / as.numeric(read_result$median[2]),
-      2
-    ),
-    native_access_ms = round(as.numeric(read_result_access$median[1]) * 1000, 1),
-    rbind_access_ms = round(as.numeric(read_result_access$median[2]) * 1000, 1),
-    access_ratio = round(
-      as.numeric(read_result_access$median[1]) / as.numeric(read_result_access$median[2]),
-      2
-    )
+    native_access_ms = round(as.numeric(access_result$median[1]) * 1000, 1),
+    rbind_access_ms = round(as.numeric(access_result$median[2]) * 1000, 1),
+    stringsAsFactors = FALSE
   )
+
+  if (!is.null(cran_lib)) {
+    row$cran_read_ms <- round(as.numeric(read_result$median[3]) * 1000, 1)
+    row$cran_access_ms <- round(as.numeric(access_result$median[3]) * 1000, 1)
+  }
+
+  unlink(filepaths)
+  row
 }
 
 check_altrep <- function() {
@@ -157,7 +194,8 @@ check_altrep <- function() {
   for (nm in names(native)) {
     inspect_out <- utils::capture.output(.Internal(inspect(native[[nm]])))
     is_altrep <- any(grepl("vroom_arrow_|vroom_rle", inspect_out))
-    cat(sprintf("  %-10s (%s): %s\n", nm, typeof(native[[nm]]),
+    cat(sprintf(
+      "  %-10s (%s): %s\n", nm, typeof(native[[nm]]),
       if (is_altrep) "ALTREP" else "materialized"
     ))
   }
@@ -168,7 +206,8 @@ check_altrep <- function() {
   for (nm in names(rbind_result)) {
     inspect_out <- utils::capture.output(.Internal(inspect(rbind_result[[nm]])))
     is_altrep <- any(grepl("vroom_arrow_|vroom_rle|vroom_chr|vroom_", inspect_out))
-    cat(sprintf("  %-10s (%s): %s\n", nm, typeof(rbind_result[[nm]]),
+    cat(sprintf(
+      "  %-10s (%s): %s\n", nm, typeof(rbind_result[[nm]]),
       if (is_altrep) "ALTREP" else "materialized"
     ))
   }
@@ -178,8 +217,33 @@ check_altrep <- function() {
 
 # Main
 if (!interactive()) {
-  cat("=== Native Multi-File vs Per-File + vec_rbind Benchmark ===\n")
-  cat("(Both use libvroom SIMD parser)\n\n")
+  args <- commandArgs(trailingOnly = TRUE)
+  skip_cran <- "--skip-cran" %in% args
+
+  cat("=== Multi-File Read Performance Benchmark ===\n\n")
+
+  cran_lib <- NULL
+  if (!skip_cran) {
+    if (!requireNamespace("callr", quietly = TRUE)) {
+      cat("callr not installed, skipping CRAN vroom comparison\n")
+      cat("Install with: install.packages('callr')\n\n")
+    } else {
+      cran_lib <- tryCatch(
+        setup_cran_vroom(),
+        error = function(e) {
+          cat(sprintf("Could not install CRAN vroom: %s\n", e$message))
+          cat("Skipping CRAN comparison\n\n")
+          NULL
+        }
+      )
+    }
+  }
+
+  approaches <- "native (multi-chunk Altrep) vs per-file + vec_rbind"
+  if (!is.null(cran_lib)) {
+    approaches <- paste0(approaches, " vs CRAN vroom")
+  }
+  cat("Comparing: ", approaches, "\n\n")
 
   grid <- expand.grid(
     n_files = c(3, 10, 50),
@@ -191,30 +255,30 @@ if (!interactive()) {
   results <- list()
   for (i in seq_len(nrow(grid))) {
     g <- grid[i, ]
-    cat(sprintf(
-      "  %d files x %d rows (%s)...",
-      g$n_files, g$n_rows, g$type
-    ))
+    cat(sprintf("  %d files x %d rows (%s)...", g$n_files, g$n_rows, g$type))
     r <- tryCatch(
-      benchmark_comparison(g$n_files, g$n_rows, g$type),
+      benchmark_comparison(g$n_files, g$n_rows, g$type, cran_lib),
       error = function(e) {
         cat(sprintf(" ERROR: %s\n", e$message))
         NULL
       }
     )
     if (!is.null(r)) {
-      cat(sprintf(
-        " read=%.2fx, access=%.2fx\n",
-        r$read_ratio, r$access_ratio
-      ))
+      ratio <- r$native_access_ms / r$rbind_access_ms
+      msg <- sprintf(" native/rbind=%.2fx", ratio)
+      if (!is.null(cran_lib) && !is.null(r$cran_access_ms)) {
+        cran_ratio <- r$native_access_ms / r$cran_access_ms
+        msg <- paste0(msg, sprintf(", native/cran=%.2fx", cran_ratio))
+      }
+      cat(msg, "\n")
       results[[length(results) + 1]] <- r
     }
   }
 
   summary_df <- do.call(rbind, results)
   cat("\n=== Results ===\n")
-  cat("(ratio = native/rbind; <1 = native faster, >1 = rbind faster)\n\n")
-  print(tibble::as_tibble(summary_df), n = Inf)
+  cat("(times in ms; ratio <1 = native faster)\n\n")
+  print(tibble::as_tibble(summary_df), n = Inf, width = Inf)
 
   check_altrep()
 

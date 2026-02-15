@@ -1133,7 +1133,6 @@ test_that("native multi-file path preserves Altrep vectors", {
     files,
     delim = ",",
     id = "source",
-    use_libvroom = TRUE,
     show_col_types = FALSE
   )
 
@@ -1161,7 +1160,6 @@ test_that("native multi-file produces correct logical columns", {
   result <- vroom(
     files,
     delim = ",",
-    use_libvroom = TRUE,
     show_col_types = FALSE
   )
 
@@ -1181,7 +1179,6 @@ test_that("native multi-file handles col_select", {
     files,
     delim = ",",
     col_select = c(a, c),
-    use_libvroom = TRUE,
     show_col_types = FALSE
   )
 
@@ -1202,7 +1199,6 @@ test_that("native multi-file handles n_max", {
     files,
     delim = ",",
     n_max = 4,
-    use_libvroom = TRUE,
     show_col_types = FALSE
   )
 
@@ -1210,7 +1206,7 @@ test_that("native multi-file handles n_max", {
   expect_equal(result$x, c(1, 2, 3, 4))
 })
 
-test_that("native multi-file matches vec_rbind path for correctness", {
+test_that("native multi-file matches per-file + rbind for correctness", {
   dir <- withr::local_tempdir()
 
   writeLines("a,b,c\n1,hello,3.14\n2,world,2.72", file.path(dir, "f1.csv"))
@@ -1219,27 +1215,26 @@ test_that("native multi-file matches vec_rbind path for correctness", {
 
   files <- file.path(dir, c("f1.csv", "f2.csv", "f3.csv"))
 
-  suppressWarnings({
-    legacy <- vroom(
-      files,
-      delim = ",",
-      id = "source",
-      use_libvroom = FALSE,
-      show_col_types = FALSE
-    )
-    native <- vroom(
-      files,
-      delim = ",",
-      id = "source",
-      use_libvroom = TRUE,
-      show_col_types = FALSE
-    )
-  })
+  # Native multi-file path
+  native <- vroom(
+    files,
+    delim = ",",
+    id = "source",
+    show_col_types = FALSE
+  )
 
-  expect_equal(native$a, legacy$a)
-  expect_equal(native$b, legacy$b)
-  expect_equal(native$c, legacy$c)
-  expect_equal(basename(native$source), basename(legacy$source))
+  # Per-file + rbind
+  per_file <- lapply(files, function(f) {
+    one <- vroom(f, delim = ",", show_col_types = FALSE)
+    one$source <- f
+    one[c("source", setdiff(names(one), "source"))]
+  })
+  combined <- vctrs::vec_rbind(!!!per_file)
+
+  expect_equal(native$a, combined$a)
+  expect_equal(native$b, combined$b)
+  expect_equal(native$c, combined$c)
+  expect_equal(basename(native$source), basename(combined$source))
 })
 
 test_that("native multi-file with explicit col_types", {
@@ -1254,7 +1249,6 @@ test_that("native multi-file with explicit col_types", {
     files,
     delim = ",",
     col_types = "id",
-    use_libvroom = TRUE,
     show_col_types = FALSE
   )
 
