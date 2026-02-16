@@ -1113,6 +1113,221 @@ test_that("libvroom problems work across multiple files", {
 })
 
 # ========================================================================
+# Native multi-file Altrep preservation
+# ========================================================================
+
+is_altrep <- function(x) {
+  out <- utils::capture.output(.Internal(inspect(x)))
+  any(grepl("vroom_arrow_|vroom_rle", out))
+}
+
+test_that("native multi-file path preserves Altrep vectors", {
+  dir <- withr::local_tempdir()
+
+  writeLines("x,y,z\n1,1.5,foo\n2,2.5,bar", file.path(dir, "f1.csv"))
+  writeLines("x,y,z\n3,3.5,baz\n4,4.5,qux", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    id = "source",
+    show_col_types = FALSE
+  )
+
+  # All data columns should be Altrep (unmaterialized)
+  expect_true(is_altrep(result$x))
+  expect_true(is_altrep(result$y))
+  expect_true(is_altrep(result$z))
+  # id column should be vroom_rle Altrep
+  expect_true(is_altrep(result$source))
+
+  # Data should be correct
+  expect_equal(result$x, c(1, 2, 3, 4))
+  expect_equal(result$y, c(1.5, 2.5, 3.5, 4.5))
+  expect_equal(result$z, c("foo", "bar", "baz", "qux"))
+})
+
+test_that("native multi-file produces correct logical columns", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b\nTRUE,1\nFALSE,2", file.path(dir, "f1.csv"))
+  writeLines("a,b\nTRUE,3\nFALSE,4", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    show_col_types = FALSE
+  )
+
+  expect_equal(result$a, c(TRUE, FALSE, TRUE, FALSE))
+  expect_equal(result$b, c(1, 2, 3, 4))
+})
+
+test_that("native multi-file handles col_select", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,2,3\n4,5,6", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n7,8,9\n10,11,12", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_select = c(a, c),
+    show_col_types = FALSE
+  )
+
+  expect_equal(names(result), c("a", "c"))
+  expect_equal(result$a, c(1, 4, 7, 10))
+  expect_equal(result$c, c(3, 6, 9, 12))
+})
+
+test_that("native multi-file handles n_max", {
+  dir <- withr::local_tempdir()
+
+  writeLines("x\n1\n2\n3", file.path(dir, "f1.csv"))
+  writeLines("x\n4\n5\n6", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    n_max = 4,
+    show_col_types = FALSE
+  )
+
+  expect_equal(nrow(result), 4)
+  expect_equal(result$x, c(1, 2, 3, 4))
+})
+
+test_that("native multi-file matches per-file + rbind for correctness", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,hello,3.14\n2,world,2.72", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n3,foo,1.41\n4,bar,1.73", file.path(dir, "f2.csv"))
+  writeLines("a,b,c\n5,baz,0.58\n6,qux,0.31", file.path(dir, "f3.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv", "f3.csv"))
+
+  # Native multi-file path
+  native <- vroom(
+    files,
+    delim = ",",
+    id = "source",
+    show_col_types = FALSE
+  )
+
+  # Per-file + rbind
+  per_file <- lapply(files, function(f) {
+    one <- vroom(f, delim = ",", show_col_types = FALSE)
+    one$source <- f
+    one[c("source", setdiff(names(one), "source"))]
+  })
+  combined <- vctrs::vec_rbind(!!!per_file)
+
+  expect_equal(native$a, combined$a)
+  expect_equal(native$b, combined$b)
+  expect_equal(native$c, combined$c)
+  expect_equal(basename(native$source), basename(combined$source))
+})
+
+test_that("native multi-file with explicit col_types", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b\n1,2.5\n3,4.5", file.path(dir, "f1.csv"))
+  writeLines("a,b\n5,6.5\n7,8.5", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_types = "id",
+    show_col_types = FALSE
+  )
+
+  expect_type(result$a, "integer")
+  expect_type(result$b, "double")
+  expect_equal(result$a, c(1L, 3L, 5L, 7L))
+  expect_equal(result$b, c(2.5, 4.5, 6.5, 8.5))
+})
+
+test_that("native multi-file handles NA values correctly", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a,b,c\n1,hello,TRUE\nNA,NA,NA", file.path(dir, "f1.csv"))
+  writeLines("a,b,c\n2,world,FALSE\n3,NA,NA", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    show_col_types = FALSE
+  )
+
+  expect_equal(result$a, c(1, NA, 2, 3))
+  expect_equal(result$b, c("hello", NA, "world", NA))
+  expect_equal(result$c, c(TRUE, NA, FALSE, NA))
+})
+
+test_that("native multi-file handles date and datetime columns", {
+  dir <- withr::local_tempdir()
+
+  writeLines(
+    "dt,ts\n2024-01-15,2024-01-15T10:30:00\n2024-02-20,2024-02-20T14:00:00",
+    file.path(dir, "f1.csv")
+  )
+  writeLines(
+    "dt,ts\n2024-03-10,2024-03-10T08:15:00\n2024-04-05,2024-04-05T16:45:00",
+    file.path(dir, "f2.csv")
+  )
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  result <- vroom(
+    files,
+    delim = ",",
+    col_types = "DT",
+    show_col_types = FALSE
+  )
+
+  expect_s3_class(result$dt, "Date")
+  expect_s3_class(result$ts, "POSIXct")
+  expect_equal(
+    result$dt,
+    as.Date(c("2024-01-15", "2024-02-20", "2024-03-10", "2024-04-05"))
+  )
+  expect_equal(nrow(result), 4)
+})
+
+test_that("native multi-file falls back when decimal_mark is non-default", {
+  dir <- withr::local_tempdir()
+
+  writeLines("a;b\n1,5;2,5\n3,5;4,5", file.path(dir, "f1.csv"))
+  writeLines("a;b\n5,5;6,5\n7,5;8,5", file.path(dir, "f2.csv"))
+
+  files <- file.path(dir, c("f1.csv", "f2.csv"))
+
+  # Non-default decimal_mark should still work (falls back to per-file path)
+  result <- vroom(
+    files,
+    delim = ";",
+    locale = locale(decimal_mark = ","),
+    show_col_types = FALSE
+  )
+
+  expect_equal(nrow(result), 4)
+  expect_equal(result$a, c(1.5, 3.5, 5.5, 7.5))
+})
+
+# ========================================================================
 # Backslash escape support
 # ========================================================================
 

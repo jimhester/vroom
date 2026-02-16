@@ -508,6 +508,107 @@ vroom <- function(
     })
   }
 
+  # Fast path: native multi-file read (no vec_rbind, all Altrep)
+  # Skip when features not supported by the multi-file C++ path are in use:
+  #   - non-default decimal mark (affects numeric parsing)
+  #   - custom col_formats (date/time format strings)
+  #   - altrep explicitly disabled
+  multi_file_eligible <-
+    all_local_plain_files(file) &&
+    identical(locale$decimal_mark, ".") &&
+    (length(col_formats) == 0 || all(col_formats == "")) &&
+    !isFALSE(altrep)
+
+  if (multi_file_eligible) {
+    multi_result <- tryCatch(
+      vroom_libvroom_multi_(
+        files = unlist(file),
+        delim = delim %||% "",
+        quote = quote,
+        has_header = isTRUE(col_names),
+        skip = as.integer(skip),
+        comment = comment,
+        skip_empty_rows = skip_empty_rows,
+        trim_ws = trim_ws,
+        na_values = na_str,
+        num_threads = as.integer(num_threads),
+        use_altrep = if (is.character(altrep)) TRUE else isTRUE(altrep),
+        col_types = col_types_int,
+        col_type_names = libvroom_col_type_names,
+        default_col_type = default_col_type,
+        escape_backslash = escape_backslash,
+        id_col_name = id %||% ""
+      ),
+      error = function(e) NULL
+    )
+
+    if (!is.null(multi_result)) {
+      # Apply col_names renaming for non-TRUE col_names
+      data_names <- setdiff(names(multi_result), id)
+      if (is.character(col_names)) {
+        new_names <- make_names(col_names, length(data_names))
+        idx <- match(data_names, names(multi_result))
+        names(multi_result)[idx] <- new_names
+      } else if (isFALSE(col_names)) {
+        new_names <- make_names(character(), length(data_names))
+        idx <- match(data_names, names(multi_result))
+        names(multi_result)[idx] <- new_names
+      }
+
+      out <- tibble::as_tibble(multi_result, .name_repair = .name_repair)
+
+      # Build and attach spec attribute
+      all_col_names <- setdiff(names(out), id)
+      attr(out, "spec") <- build_libvroom_spec(
+        out[all_col_names],
+        resolved_spec,
+        col_types_int,
+        all_col_names,
+        delim = delim %||% ""
+      )
+
+      out <- apply_libvroom_col_select(out, col_select, id)
+
+      # Apply n_max row limit
+      if (!is.infinite(n_max) && n_max >= 0 && nrow(out) > n_max) {
+        out <- out[seq_len(n_max), , drop = FALSE]
+      }
+
+      # Handle problems
+      probs <- attr(multi_result, "problems")
+      if (is.null(probs) || !is.data.frame(probs) || nrow(probs) == 0) {
+        probs <- tibble::tibble(
+          row = integer(),
+          col = integer(),
+          expected = character(),
+          actual = character(),
+          file = character()
+        )
+      }
+
+      if (nrow(probs) > 0) {
+        cli::cli_warn(
+          c(
+            "w" = "One or more parsing issues, call {.fun problems} on your data frame for details, e.g.:",
+            " " = "dat <- vroom(...)",
+            " " = "problems(dat)"
+          ),
+          class = "vroom_parse_issue"
+        )
+      }
+
+      out <- finalize_libvroom_result(out, probs)
+
+      has_col_types <- !is.null(col_types) && !identical(col_types, list())
+      if (should_show_col_types(has_col_types, show_col_types)) {
+        show_col_types(out, locale)
+      }
+
+      return(out)
+    }
+    # If multi-file path failed, fall through to per-file loop
+  }
+
   # Read each file and collect results
   results <- list()
   first_result <- NULL
@@ -695,6 +796,32 @@ vroom <- function(
   out
 }
 
+
+# Check if all inputs are plain local files suitable for native multi-file path
+all_local_plain_files <- function(files) {
+  if (length(files) <= 1) {
+    return(FALSE)
+  }
+  for (f in files) {
+    if (!is.character(f)) {
+      return(FALSE)
+    }
+    if (is_url(f)) {
+      return(FALSE)
+    }
+    if (is_compressed_path(f)) {
+      return(FALSE)
+    }
+    if (!is_ascii_path(f)) {
+      return(FALSE)
+    }
+    if (!file.exists(f)) {
+      return(FALSE)
+    }
+    if (file.size(f) == 0) return(FALSE)
+  }
+  TRUE
+}
 
 # Map an R col_spec to a vector of libvroom DataType integers.
 #
