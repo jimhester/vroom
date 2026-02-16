@@ -114,7 +114,7 @@ directly to vroom.
 vroom(files)
 #> Rows: 32 Columns: 12
 #> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
+#> 
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
@@ -139,7 +139,7 @@ column `path`).
 vroom(files, id = "path")
 #> Rows: 32 Columns: 13
 #> ── Column specification ───────────────────────────────────────────────
-#> Delimiter: ","
+#> 
 #> chr  (1): model
 #> dbl (11): mpg, cyl, disp, hp, drat, wt, qsec, vs, am, gear, carb
 #> 
