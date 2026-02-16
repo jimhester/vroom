@@ -145,8 +145,14 @@ static cpp11::writable::list errors_to_r_problems_with_files(
   opts.decimal_mark = locale_decimal_mark.empty() ? '.' : locale_decimal_mark[0];
   opts.escape_backslash = escape_backslash;
   opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
@@ -290,9 +296,10 @@ static cpp11::writable::list errors_to_r_problems_with_files(
     return attach_problems(result);
   }
 
-  // ALTREP path: stream chunks incrementally.
-  // Pre-allocate R vectors for numerics, accumulate string builders for ALTREP.
-  if (use_altrep && !strings_as_factors) {
+  // Streaming path: always used for all column types.
+  // Pre-allocate R vectors for numerics, accumulate string builders.
+  // String finalization depends on use_altrep/strings_as_factors.
+  {
     cpp11::writable::list result(ncols);
     cpp11::writable::strings names(ncols);
 
@@ -327,7 +334,7 @@ static cpp11::writable::list errors_to_r_problems_with_files(
         break;
       }
       default:
-        // String columns: will accumulate builders for ALTREP
+        // String columns: will accumulate builders for later finalization
         break;
       }
     }
@@ -344,7 +351,7 @@ static cpp11::writable::list errors_to_r_problems_with_files(
         auto type = columns[i]->type();
 
         if (type == libvroom::DataType::STRING) {
-          // Accumulate string column builder for later ALTREP wrapping
+          // Accumulate string column builder for later finalization
           string_accumulators[i].push_back(
               std::shared_ptr<libvroom::ArrowStringColumnBuilder>(
                   static_cast<libvroom::ArrowStringColumnBuilder*>(
@@ -483,11 +490,46 @@ static cpp11::writable::list errors_to_r_problems_with_files(
       }
     }
 
-    // Wrap string columns in multi-chunk ALTREP
+    // Finalize string columns based on use_altrep / strings_as_factors
     for (size_t i = 0; i < ncols; i++) {
-      if (!string_accumulators[i].empty()) {
+      if (string_accumulators[i].empty())
+        continue;
+
+      if (strings_as_factors) {
+        // Merge accumulated string builders, then build factor
+        auto& first = string_accumulators[i][0];
+        for (size_t c = 1; c < string_accumulators[i].size(); c++) {
+          first->merge_from(*string_accumulators[i][c]);
+        }
+        result[static_cast<R_xlen_t>(i)] =
+            column_to_r(*first, total_rows, true);
+
+      } else if (use_altrep) {
+        // Wrap in multi-chunk ALTREP (deferred materialization)
         result[static_cast<R_xlen_t>(i)] =
             vroom_arrow_chr::Make(std::move(string_accumulators[i]), total_rows);
+
+      } else {
+        // Materialize strings eagerly from accumulated builders
+        cpp11::writable::strings r_vec(static_cast<R_xlen_t>(total_rows));
+        R_xlen_t idx = 0;
+        for (auto& builder : string_accumulators[i]) {
+          const auto& buf = builder->values();
+          const auto& nulls = builder->null_bitmap();
+          bool has_nulls = nulls.has_nulls();
+          for (size_t r = 0; r < builder->size(); r++) {
+            if (has_nulls && !nulls.is_valid(r)) {
+              SET_STRING_ELT(r_vec, idx++, NA_STRING);
+            } else {
+              auto sv = buf.get(r);
+              SET_STRING_ELT(
+                  r_vec, idx++,
+                  Rf_mkCharLenCE(
+                      sv.data(), static_cast<int>(sv.size()), CE_UTF8));
+            }
+          }
+        }
+        result[static_cast<R_xlen_t>(i)] = r_vec;
       }
     }
 
@@ -498,57 +540,6 @@ static cpp11::writable::list errors_to_r_problems_with_files(
         cpp11::writable::integers({NA_INTEGER, -static_cast<int>(total_rows)});
     return attach_problems(result);
   }
-
-  // Non-ALTREP paths: collect all chunks, then use existing conversion.
-  // This unifies factor and non-ALTREP paths on the streaming API.
-  std::vector<std::vector<std::unique_ptr<libvroom::ArrowColumnBuilder>>> chunks;
-  while (auto chunk = reader.next_chunk()) {
-    chunks.push_back(std::move(chunk.value()));
-  }
-
-  if (chunks.empty()) {
-    // Edge case: no data chunks despite non-zero row_count
-    cpp11::writable::list result(ncols);
-    cpp11::writable::strings names(ncols);
-    for (size_t i = 0; i < ncols; i++) {
-      result[static_cast<R_xlen_t>(i)] = Rf_allocVector(STRSXP, 0);
-      names[static_cast<R_xlen_t>(i)] = schema[i].name;
-    }
-    result.attr("names") = names;
-    result.attr("class") =
-        cpp11::writable::strings({"tbl_df", "tbl", "data.frame"});
-    result.attr("row.names") =
-        cpp11::writable::integers({NA_INTEGER, 0});
-    return attach_problems(result);
-  }
-
-  // Fast path: direct chunked copy for non-factor, all-numeric data.
-  // columns_to_r_chunked wraps strings in ALTREP, so only safe when
-  // there are no string columns (or when ALTREP is acceptable).
-  if (!strings_as_factors) {
-    bool has_string_cols = false;
-    for (size_t i = 0; i < chunks[0].size(); i++) {
-      if (chunks[0][i]->type() == libvroom::DataType::STRING) {
-        has_string_cols = true;
-        break;
-      }
-    }
-    if (!has_string_cols) {
-      return attach_problems(
-          columns_to_r_chunked(chunks, schema, total_rows));
-    }
-  }
-
-  // Merge path: needed for factors (dict building) and non-ALTREP strings
-  std::vector<std::unique_ptr<libvroom::ArrowColumnBuilder>>& merged = chunks[0];
-  for (size_t c = 1; c < chunks.size(); c++) {
-    for (size_t col = 0; col < merged.size(); col++) {
-      merged[col]->merge_from(*chunks[c][col]);
-    }
-  }
-
-  return attach_problems(columns_to_r(merged, schema, total_rows, strings_as_factors,
-                                      use_altrep));
 }
 
 // Multi-file entry point: reads multiple CSV files and returns a single R data
@@ -576,8 +567,14 @@ static cpp11::writable::list errors_to_r_problems_with_files(
   libvroom::CsvOptions opts;
   opts.escape_backslash = escape_backslash;
   opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;

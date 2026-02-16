@@ -118,8 +118,8 @@ int streaming_get_next(libvroom::ArrowArrayStream* stream,
 
   // Get next chunk from streaming parser (blocks if not ready yet)
   auto chunk = priv->reader->next_chunk();
+
   if (!chunk.has_value()) {
-    // All chunks consumed — signal end of stream
     libvroom::init_empty_array(out);
     return 0;
   }
@@ -204,8 +204,14 @@ struct StreamGuard {
     int num_threads) {
 
   libvroom::CsvOptions opts;
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
