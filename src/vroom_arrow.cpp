@@ -6,6 +6,8 @@
 #include <libvroom/types.h>
 #include <libvroom/vroom.h>
 
+#include <chrono>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,6 +35,10 @@ struct StreamingStreamPrivate {
 
   // Error tracking
   std::string last_error;
+
+  // Profiling
+  int chunk_count = 0;
+  double total_chunk_ms = 0.0;
 };
 
 // Schema for a struct (record batch) wrapping the column schemas
@@ -116,13 +122,28 @@ int streaming_get_next(libvroom::ArrowArrayStream* stream,
                        libvroom::ArrowArray* out) {
   auto* priv = static_cast<StreamingStreamPrivate*>(stream->private_data);
 
+  using Clock = std::chrono::high_resolution_clock;
+  auto t0 = Clock::now();
+
   // Get next chunk from streaming parser (blocks if not ready yet)
   auto chunk = priv->reader->next_chunk();
+
+  auto t1 = Clock::now();
+  double chunk_ms =
+      std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() /
+      1000.0;
+
   if (!chunk.has_value()) {
-    // All chunks consumed — signal end of stream
+    // All chunks consumed — print summary
+    REprintf(
+        "[vroom_arrow profile] chunks: %d | total next_chunk: %.1fms\n",
+        priv->chunk_count, priv->total_chunk_ms);
     libvroom::init_empty_array(out);
     return 0;
   }
+
+  priv->chunk_count++;
+  priv->total_chunk_ms += chunk_ms;
 
   auto& columns = chunk.value();
   if (columns.empty()) {
@@ -203,9 +224,18 @@ struct StreamGuard {
     const std::string& na_values,
     int num_threads) {
 
+  using Clock = std::chrono::high_resolution_clock;
+  auto t_start = Clock::now();
+
   libvroom::CsvOptions opts;
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
@@ -228,6 +258,8 @@ struct StreamGuard {
     cpp11::stop("Failed to open file: %s", open_result.error.c_str());
   }
 
+  auto t_after_open = Clock::now();
+
   // Capture schema before starting streaming
   auto schema = reader->schema();
 
@@ -237,6 +269,8 @@ struct StreamGuard {
   if (!stream_result) {
     cpp11::stop("Failed to start streaming: %s", stream_result.error.c_str());
   }
+
+  auto t_after_streaming = Clock::now();
 
   // Phase 3: Set up ArrowArrayStream with streaming callbacks.
   // get_schema() works immediately (uses pre-captured schema).
@@ -269,5 +303,22 @@ struct StreamGuard {
   // Transfer stream ownership to the arrow package
   guard.release();
 
-  return import_rbr(stream_ptr_sexp);
+  auto t_before_import = Clock::now();
+  cpp11::sexp result = import_rbr(stream_ptr_sexp);
+  auto t_after_import = Clock::now();
+
+  auto ms = [](auto d) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(d).count() /
+           1000.0;
+  };
+
+  REprintf(
+      "[vroom_arrow profile] open: %.1fms | start_streaming: %.1fms | "
+      "setup+import: %.1fms | total_cpp: %.1fms\n",
+      ms(t_after_open - t_start),
+      ms(t_after_streaming - t_after_open),
+      ms(t_after_import - t_before_import),
+      ms(t_after_import - t_start));
+
+  return result;
 }

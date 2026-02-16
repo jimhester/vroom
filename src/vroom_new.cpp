@@ -145,8 +145,14 @@ static cpp11::writable::list errors_to_r_problems_with_files(
   opts.decimal_mark = locale_decimal_mark.empty() ? '.' : locale_decimal_mark[0];
   opts.escape_backslash = escape_backslash;
   opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
@@ -576,8 +582,14 @@ static cpp11::writable::list errors_to_r_problems_with_files(
   libvroom::CsvOptions opts;
   opts.escape_backslash = escape_backslash;
   opts.guess_integer = false; // vroom defaults to guessing doubles, not integers
-  if (!delim.empty())
-    opts.separator = delim;
+  if (!delim.empty()) {
+    if (delim.size() > 1) {
+      opts.multi_separator = delim;
+      opts.separator = delim[0]; // Also set single-byte for ChunkFinder fallback
+    } else {
+      opts.separator = delim[0];
+    }
+  }
   opts.quote = quote;
   opts.has_header = has_header;
   opts.skip_empty_rows = skip_empty_rows;
